@@ -1,0 +1,52 @@
+{
+  "env": {
+    "IS_DEMO": "true"
+  },
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(nvim:*)",
+      "Bash(git clone:*)",
+      "Bash(sudo apt-get update:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(curl:*)",
+      "Bash(tar:*)",
+      "Bash(sudo rm:*)",
+      "Bash(sudo mv:*)",
+      "Bash(sudo ln:*)",
+      "Bash(/usr/local/bin/nvim:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:ghostty.org)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(agent-browser open:*)",
+      "Bash(npx playwright:*)",
+      "Bash(node:*)",
+      "Bash(agent-browser snapshot:*)",
+      "Bash(agent-browser close:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(find:*)",
+      "Skill(skill-creator)",
+      "Bash(python3:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\e]9;Claude Code: タスク完了\\e\\\\' > \"${_P9K_TTY:-/dev/tty}\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  },
+  "outputStyle": "Explanatory",
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  }
+}

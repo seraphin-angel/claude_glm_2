@@ -1,0 +1,75 @@
+{
+  "name": "claude-codex-skill-1",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12",
+      "installTools": true,
+      "installPoetry": true,
+      "installMyPy": true
+    }
+  },
+  "securityOpt": ["seccomp=unconfined"],
+  "privileged": true,
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "Asia/Tokyo"
+    }
+  },
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "eamodio.gitlens",
+        "ms-playwright.playwright",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.mypy-type-checker",
+        "openai.codex"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": { "path": "bash", "icon": "terminal-bash" },
+          "zsh": { "path": "zsh" }
+        }
+      }
+    }
+  },
+
+  "remoteUser": "node",
+
+  "mounts": [
+    // "source=codex-bashhistory,target=/commandhistory,type=volume",
+    // "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
+    // "source=${localEnv:HOME}/.codex,target=/home/node/.codex,type=bind"
+    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume"
+  ],
+  "remoteEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+    "PATH": "${containerEnv:PATH}"
+  },
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "sh -lc 'set -e && mkdir -p ~/.codex && npm config set fund false && npm install -g @openai/codex && if [ ! -f ~/.codex/config.toml ]; then { echo \"approval_policy = \\\"on-request\\\"\"; echo \"sandbox_mode    = \\\"workspace-write\\\"\"; echo \"\"; echo \"[sandbox_workspace_write]\"; echo \"network_access = false\"; } > ~/.codex/config.toml; fi && node -v && google-chrome --version && claude --version || true; codex --version || true; uv --version || true'",
+  "forwardPorts": [3000, 8000],
+  "portsAttributes": {
+    "3000": { "label": "Web UI", "onAutoForward": "openExternally" },
+    "8000": { "label": "Backend API", "onAutoForward": "openExternally" }
+  }
+}
