@@ -48,6 +48,7 @@ RUN apt-get update && \
       vim \
       ripgrep \
       fd-find \
+      rsync \
       openssh-client \
       locales \
       tzdata \
@@ -105,6 +106,11 @@ ENV DEVCONTAINER=true
 RUN mkdir -p /workspace /home/node/.claude && \
 chown -R node:node /workspace /home/node/.claude
 
+RUN mkdir -p /workspace /home/node/.claude-zai && \
+chown -R node:node /workspace /home/node/.claude-zai
+
+RUN mkdir -p /workspace /home/node/.claude-anthropic && \
+chown -R node:node /workspace /home/node/.claude-anthropic
 
 # タイムゾーン設定とsudo権限設定
 RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime && \
@@ -131,14 +137,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
     dpkg -i git-delta.deb || apt-get install -f -y && \
     rm git-delta.deb
 
-# Codex CLI will be installed via postCreateCommand in devcontainer.json
-
 # node ユーザーで動作（devcontainer.json の "remoteUser": "node" と一致）
 USER node
 
 # Install global packages
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
+
+# Install OpenAI Codex CLI
+RUN npm install -g @openai/codex
 
 # Set the default shell to zsh rather than sh
 ENV SHELL=/bin/zsh

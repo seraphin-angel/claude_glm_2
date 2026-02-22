@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Solar System</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+
+    <!-- Control Panel -->
+    <div id="controls">
+      <h2>Solar System</h2>
+      <div class="control-group">
+        <label>Speed:</label>
+        <input type="range" id="speed-slider" min="0" max="5" step="0.1" value="1">
+        <span id="speed-value">1x</span>
+      </div>
+      <div class="control-group">
+        <button id="pause-btn">Pause</button>
+        <button id="reset-btn">Reset View</button>
+      </div>
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="show-orbits" checked>
+          Show Orbits
+        </label>
+      </div>
+    </div>
+
+    <!-- Planet Info Panel -->
+    <div id="planet-info" class="hidden">
+      <h3 id="planet-name">Planet</h3>
+      <div id="planet-details"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

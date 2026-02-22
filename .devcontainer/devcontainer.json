@@ -1,5 +1,5 @@
 {
-  "name": "claude-codex-skill-1",
+  "name": "claude-glm-01",
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -55,8 +55,10 @@
     // "source=codex-bashhistory,target=/commandhistory,type=volume",
     // "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
     // "source=${localEnv:HOME}/.codex,target=/home/node/.codex,type=bind"
-    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume"
+    // "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume"
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    "source=claude-glm-code-config-${devcontainerId},target=/home/node/.claude-zai,type=volume",
+    "source=claude-ant-code-config-${devcontainerId},target=/home/node/.claude-anthropic,type=volume"
   ],
   "remoteEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
@@ -66,7 +68,7 @@
 
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "sh -lc 'set -e && mkdir -p ~/.codex && npm config set fund false && npm install -g @openai/codex && if [ ! -f ~/.codex/config.toml ]; then { echo \"approval_policy = \\\"on-request\\\"\"; echo \"sandbox_mode    = \\\"workspace-write\\\"\"; echo \"\"; echo \"[sandbox_workspace_write]\"; echo \"network_access = false\"; } > ~/.codex/config.toml; fi && node -v && google-chrome --version && claude --version || true; codex --version || true; uv --version || true'",
+  "postCreateCommand": "sh -lc 'set -e && mkdir -p ~/.codex && npm config set fund false && if [ ! -f ~/.codex/config.toml ]; then { echo \"approval_policy = \\\"on-request\\\"\"; echo \"sandbox_mode    = \\\"workspace-write\\\"\"; echo \"\"; echo \"[sandbox_workspace_write]\"; echo \"network_access = false\"; } > ~/.codex/config.toml; fi && node -v && google-chrome --version && claude --version || true; codex --version || true; uv --version || true'",
   "forwardPorts": [3000, 8000],
   "portsAttributes": {
     "3000": { "label": "Web UI", "onAutoForward": "openExternally" },
