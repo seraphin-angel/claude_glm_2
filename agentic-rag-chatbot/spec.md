@@ -54,6 +54,8 @@
 | データバリデーション | Pydantic v2 | >=2.9.0 |
 | 設定管理 | pydantic-settings | >=2.6.0 |
 | テキスト分割 | langchain-text-splitters | >=0.3.0 |
+| レート制限 | slowapi | >=0.1.9 |
+| JWT 認証 | python-jose[cryptography] | >=3.3.0 |
 | Python | Python | >=3.11 |
 
 #### フロントエンド
@@ -168,8 +170,13 @@ agentic-rag-chatbot/
 │   │   │   ├── __init__.py          # ルーター集約
 │   │   │   ├── chat.py              # チャット API エンドポイント
 │   │   │   └── health.py            # ヘルスチェック
+│   │   ├── auth/
+│   │   │   ├── __init__.py          # 公開関数エクスポート
+│   │   │   └── jwt_handler.py       # JWT トークン生成・検証
 │   │   ├── agents/
 │   │   │   ├── agent.py             # Deep Agent 構築・シングルトン管理
+│   │   │   ├── llm_factory.py       # @lru_cache LLM ファクトリ
+│   │   │   ├── output_models.py     # StructuredOutput 用 Pydantic モデル
 │   │   │   ├── prompts.py           # システムプロンプト定義
 │   │   │   ├── state.py             # AgentState TypedDict
 │   │   │   └── tools/
@@ -183,6 +190,7 @@ agentic-rag-chatbot/
 │   │   │       └── ask_human.py     # HITL ツール
 │   │   ├── config/
 │   │   │   └── settings.py          # 設定管理 (pydantic-settings)
+│   │   ├── rate_limit.py              # slowapi Limiter インスタンス
 │   │   ├── models/
 │   │   │   ├── chat.py              # ChatRequest / ChatStartResponse
 │   │   │   ├── messages.py          # StreamEvent / StreamEventType
@@ -202,8 +210,11 @@ agentic-rag-chatbot/
 │   ├── tests/
 │   │   ├── conftest.py
 │   │   ├── test_api.py
+│   │   ├── test_auth.py             # JWT 認証テスト
 │   │   ├── test_integration.py
+│   │   ├── test_llm_factory.py      # LLM ファクトリテスト
 │   │   ├── test_models.py
+│   │   ├── test_output_models.py    # StructuredOutput モデルテスト
 │   │   ├── test_rag.py
 │   │   └── test_tools.py
 │   └── pyproject.toml
@@ -243,12 +254,15 @@ agentic-rag-chatbot/
 
 #### エンドポイント一覧
 
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/api/health` | ヘルスチェック |
-| POST | `/api/chat` | チャット開始・メッセージ送信 |
-| GET | `/api/chat/stream/{thread_id}` | SSE ストリーム接続 |
-| POST | `/api/chat/resume/{thread_id}` | HITL 中断からの再開 |
+| メソッド | パス | 認証 | 説明 |
+|---------|------|------|------|
+| GET | `/api/health` | 不要 | ヘルスチェック |
+| POST | `/api/chat` | JWT 必須 | チャット開始・メッセージ送信 |
+| GET | `/api/chat/stream/{thread_id}` | JWT 必須 | SSE ストリーム接続 |
+| POST | `/api/chat/resume/{thread_id}` | JWT 必須 | HITL 中断からの再開 |
+
+> **認証:** `/api/health` を除く全エンドポイントに JWT Bearer トークンが必要。`Authorization: Bearer <token>` ヘッダーで送信する。
+> **レート制限:** チャット系エンドポイントは `slowapi` によるレート制限あり（デフォルト: チャット `10/minute`、ストリーム `30/minute`）。
 
 #### GET /api/health
 
@@ -277,7 +291,7 @@ agentic-rag-chatbot/
 | フィールド | 型 | 必須 | 説明 |
 |-----------|-----|------|------|
 | `message` | string | 必須 | ユーザーメッセージ（1〜2000文字） |
-| `thread_id` | string \| null | 任意 | 既存スレッドID。null の場合は新規作成 |
+| `thread_id` | UUID \| null | 任意 | 既存スレッドID（UUID 形式）。null の場合は新規作成 |
 
 **レスポンス:**
 ```json
@@ -386,7 +400,7 @@ sequenceDiagram
 | フィールド | 型 | デフォルト | 説明 |
 |-----------|-----|-----------|------|
 | `message` | str | 必須 | ユーザーメッセージ (1〜2000文字) |
-| `thread_id` | str \| None | None | 既存スレッドID |
+| `thread_id` | UUID \| None | None | 既存スレッドID（UUID 形式のみ受付。不正形式は 422 エラー） |
 
 **ChatStartResponse** (`app/models/chat.py`)
 
@@ -555,7 +569,7 @@ flowchart TD
   - `hallucination_score`: ソースドキュメントへの根拠度（1.0 が最良）
   - `sufficiency_score`: 質問への回答充足度（1.0 が最良）
 - 両スコアが 0.6 以上で `passed = True`
-- パース失敗時: デフォルト値（0.7/0.7）で `passed = True` を返す
+- パース失敗時: 安全方向のデフォルト値（0.0/0.0）で `passed = False` を返し、issues に「品質チェックのレスポンスが解析できませんでした」を含める
 
 **ask_human**
 - `options` 指定時は `input_type = "buttons"`（強制）
@@ -1119,6 +1133,12 @@ flowchart TD
 | `CORS_ORIGINS` | list[str] | `["http://localhost:5173", "http://localhost:3000"]` | CORS 許可オリジン一覧 |
 | `CHROMA_PERSIST_DIR` | str | `"./data/chroma_db"` | ChromaDB 永続化ディレクトリパス |
 | `CHROMA_COLLECTION_NAME` | str | `"product_support"` | ChromaDB コレクション名 |
+| `JWT_SECRET_KEY` | str | `"change-me-..."` | JWT 署名用シークレットキー（本番では必ず変更） |
+| `JWT_ALGORITHM` | str | `"HS256"` | JWT 署名アルゴリズム |
+| `JWT_EXPIRE_MINUTES` | int | `60` | JWT トークンの有効期限（分） |
+| `RATE_LIMIT_CHAT` | str | `"10/minute"` | チャットエンドポイントのレート制限 |
+| `RATE_LIMIT_STREAM` | str | `"30/minute"` | ストリームエンドポイントのレート制限 |
+| `DEBUG_MODE` | bool | `false` | デバッグモード（true の場合、エラーレスポンスにスタックトレースを含める） |
 
 ### Settings クラスのフィールド定義
 
@@ -1132,6 +1152,12 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     chroma_persist_dir: str = "./data/chroma_db"
     chroma_collection_name: str = "product_support"
+    jwt_secret_key: str = "change-me-..."
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
+    rate_limit_chat: str = "10/minute"
+    rate_limit_stream: str = "30/minute"
+    debug_mode: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 ```
@@ -1161,14 +1187,17 @@ server: {
 
 ### テストファイル一覧と対象
 
-| ファイル | 行数 | テスト対象 |
-|---------|------|-----------|
-| `tests/conftest.py` | 13 | pytest フィクスチャ定義 |
-| `tests/test_models.py` | 297 | Pydantic モデル（ChatRequest, StreamEvent, HITLRequest 等） |
-| `tests/test_api.py` | 412 | API エンドポイント（`/api/health`, `/api/chat`, `/api/chat/stream`, `/api/chat/resume`） |
-| `tests/test_tools.py` | 721 | 全 7 ツール（classify_query, rewrite_query, search_knowledge, check_relevance, generate_answer, check_quality, ask_human） |
-| `tests/test_rag.py` | 343 | RAG パイプライン（VectorStore, DocumentLoader, Retriever） |
-| `tests/test_integration.py` | 590 | エンドツーエンド統合テスト |
+| ファイル | テスト対象 |
+|---------|-----------|
+| `tests/conftest.py` | pytest フィクスチャ定義（AsyncClient, JWT auth_headers） |
+| `tests/test_models.py` | Pydantic モデル（ChatRequest, StreamEvent, HITLRequest 等） |
+| `tests/test_api.py` | API エンドポイント（認証・レート制限・UUID バリデーション含む） |
+| `tests/test_auth.py` | JWT 認証（トークン生成・検証・期限切れ・不正トークン） |
+| `tests/test_tools.py` | 全 7 ツール（StructuredOutput + ChatPromptTemplate ベース） |
+| `tests/test_llm_factory.py` | LLM ファクトリ（シングルトン・temperature 別インスタンス） |
+| `tests/test_output_models.py` | StructuredOutput Pydantic モデルバリデーション |
+| `tests/test_rag.py` | RAG パイプライン（VectorStore, DocumentLoader, Retriever） |
+| `tests/test_integration.py` | エンドツーエンド統合テスト（認証付き） |
 
 ### テスト設定
 
@@ -1235,7 +1264,7 @@ server: {
 |------|------|
 | **インメモリ状態管理** | `MemorySaver` はプロセス再起動で会話履歴が消失する |
 | **インメモリキュー** | `ChatService._queues` / `_tasks` はプロセスメモリに保持されるため、マルチプロセス・水平スケーリング不可 |
-| **スレッドクリーンアップ** | 完了済みスレッドのキュー・タスクが自動削除されない（`cleanup()` メソッドは手動呼び出し） |
+| **スレッドクリーンアップ** | SSE 終了時に `finally` で `cleanup()` を呼び出すが、SSE 未接続のまま放置されたキューは LRU eviction（上限 1000）に依存する |
 | **CORS** | デフォルトで `localhost:5173` と `localhost:3000` のみ許可 |
 | **ドキュメントの重複ロード** | `store.count == 0` チェックのみ。ドキュメント更新時は手動で ChromaDB を削除する必要がある |
 | **LLM 呼び出しの多さ** | 1 回の回答生成で最大 5〜6 回（classify, rewrite, relevance, generate, quality + HITL）LLM API を呼び出す |
@@ -1250,9 +1279,9 @@ server: {
 | **Redis キュー** | `asyncio.Queue` を Redis Pub/Sub または Redis Streams に置き換えることで水平スケーリングに対応 |
 | **埋め込みモデルのカスタマイズ** | `VectorStore` の埋め込み関数を `langchain_openai.OpenAIEmbeddings` に変更することで検索精度を向上 |
 | **ドキュメント管理 API** | ドキュメントの追加・削除・更新を行う管理用 API エンドポイントの追加 |
-| **セッション認証** | ユーザー識別・認証機能の追加（現在はすべて匿名スレッド） |
+| **ユーザー管理** | JWT 認証は実装済みだが、ユーザー登録・ロール管理・トークンリフレッシュは未実装 |
 | **会話履歴の永続化** | データベースへの会話履歴の保存と検索 |
 | **マルチモーダル対応** | 画像・PDF のアップロードとナレッジベースへの取り込み |
 | **ストリーミング検索** | RAG 検索の段階的なストリーミング配信によるレイテンシ改善 |
 | **エージェントグラフの可視化** | LangGraph Studio との連携によるデバッグ・モニタリング |
-| **レート制限** | API エンドポイントへのレート制限とスロットリング機能の追加 |
+| ~~**レート制限**~~ | ~~API エンドポイントへのレート制限とスロットリング機能の追加~~ → **P0-02 で実装済み**（slowapi） |

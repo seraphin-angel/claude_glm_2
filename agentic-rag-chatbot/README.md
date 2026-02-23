@@ -66,15 +66,23 @@ http://localhost:5173 でアクセス
 | OPENAI_MODEL | 使用するモデル | gpt-4o-mini |
 | CHROMA_PERSIST_DIR | ChromaDB 保存先 | ./data/chroma_db |
 | CHROMA_COLLECTION_NAME | コレクション名 | product_support |
+| JWT_SECRET_KEY | JWT 署名用シークレットキー | (本番では必ず変更) |
+| JWT_ALGORITHM | JWT 署名アルゴリズム | HS256 |
+| JWT_EXPIRE_MINUTES | JWT トークン有効期限（分） | 60 |
+| RATE_LIMIT_CHAT | チャット API レート制限 | 10/minute |
+| RATE_LIMIT_STREAM | ストリーム API レート制限 | 30/minute |
+| DEBUG_MODE | デバッグモード（エラー詳細表示） | false |
 
 ## API エンドポイント
 
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | /api/health | ヘルスチェック |
-| POST | /api/chat | チャット開始/メッセージ送信 |
-| GET | /api/chat/stream/{thread_id} | SSE ストリーム |
-| POST | /api/chat/resume/{thread_id} | HITL 再開 |
+| メソッド | パス | 認証 | 説明 |
+|---------|------|------|------|
+| GET | /api/health | 不要 | ヘルスチェック |
+| POST | /api/chat | JWT | チャット開始/メッセージ送信 |
+| GET | /api/chat/stream/{thread_id} | JWT | SSE ストリーム |
+| POST | /api/chat/resume/{thread_id} | JWT | HITL 再開 |
+
+> `/api/health` 以外の全エンドポイントは `Authorization: Bearer <token>` ヘッダーが必要です。
 
 ## テスト
 
