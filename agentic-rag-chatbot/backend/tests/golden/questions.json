@@ -1,0 +1,72 @@
+[
+  {
+    "id": "golden_001",
+    "category": "操作方法",
+    "question": "ログイン方法を教えてください",
+    "expected_keywords": ["ログイン", "メールアドレス", "パスワード"],
+    "description": "基本的なログイン手順の説明を確認"
+  },
+  {
+    "id": "golden_002",
+    "category": "操作方法",
+    "question": "パスワードを変更するにはどうすればいいですか？",
+    "expected_keywords": ["パスワード", "変更", "設定"],
+    "description": "パスワード変更手順の確認"
+  },
+  {
+    "id": "golden_003",
+    "category": "操作方法",
+    "question": "通知設定を変更したい",
+    "expected_keywords": ["通知", "設定"],
+    "description": "通知設定の変更方法"
+  },
+  {
+    "id": "golden_004",
+    "category": "障害・トラブル",
+    "question": "ログインできません",
+    "expected_keywords": ["ログイン", "パスワード"],
+    "description": "ログインできない場合の対処法"
+  },
+  {
+    "id": "golden_005",
+    "category": "障害・トラブル",
+    "question": "画面が表示されません",
+    "expected_keywords": ["表示", "ブラウザ"],
+    "description": "画面表示の問題の対処法"
+  },
+  {
+    "id": "golden_006",
+    "category": "障害・トラブル",
+    "question": "エラーメッセージが表示されます",
+    "expected_keywords": ["エラー"],
+    "description": "エラー発生時の対処法"
+  },
+  {
+    "id": "golden_007",
+    "category": "契約・料金",
+    "question": "料金プランを教えてください",
+    "expected_keywords": ["プラン", "料金"],
+    "description": "料金プランの説明"
+  },
+  {
+    "id": "golden_008",
+    "category": "契約・料金",
+    "question": "解約方法を教えてください",
+    "expected_keywords": ["解約"],
+    "description": "解約手順の説明"
+  },
+  {
+    "id": "golden_009",
+    "category": "契約・料金",
+    "question": "プランを変更したい",
+    "expected_keywords": ["プラン", "変更"],
+    "description": "プラン変更の手順"
+  },
+  {
+    "id": "golden_010",
+    "category": "操作方法",
+    "question": "データをエクスポートする方法は？",
+    "expected_keywords": ["エクスポート", "データ"],
+    "description": "データエクスポート機能の使い方"
+  }
+]

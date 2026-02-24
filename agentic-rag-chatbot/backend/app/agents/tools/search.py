@@ -1,6 +1,6 @@
 from langchain_core.tools import tool
 
-from app.rag.retriever import retrieve_documents
+from app.rag.retriever import hybrid_retrieve
 
 
 @tool
@@ -15,7 +15,7 @@ def search_knowledge(query: str, category: str | None = None, n_results: int = 5
     Returns:
         検索結果のリスト。各結果は content, metadata, relevance_score, id を含む。
     """
-    results = retrieve_documents(
+    results = hybrid_retrieve(
         query=query,
         n_results=n_results,
         category=category,

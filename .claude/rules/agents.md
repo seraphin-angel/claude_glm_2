@@ -47,3 +47,31 @@ For complex problems, use split role sub-agents:
 - Security expert
 - Consistency reviewer
 - Redundancy checker
+
+## Auto-Delegation Trigger
+
+When a user request scores 2+ on the complexity quick-check (see CLAUDE.md):
+
+### Score 2 — Lightweight Delegation
+1. Announce: "サブエージェントに委譲します"
+2. Spawn a single Task sub-agent (`general-purpose`, `model: "sonnet"`)
+3. Wait for result, report to user
+
+### Score 3+ — Full Team Delegation
+1. Announce: "チームを作成して対応します"
+2. TeamCreate to establish the team
+3. TaskCreate for all tasks with dependencies
+4. Present task list for user approval
+5. Execute via agent spawning (see `rules/delegation.md`)
+
+The main session MUST NOT begin implementation work before completing these steps.
+
+## Agent Selection Quick Reference
+
+| Need | Agent Type | Model |
+|------|-----------|-------|
+| Investigate codebase | `Explore` | haiku |
+| Implement feature | `general-purpose` | sonnet |
+| Run tests & review | `code-reviewer` | sonnet |
+| Security audit | `security-reviewer` | (own setting) |
+| Architecture design | `architect` | (own setting) |

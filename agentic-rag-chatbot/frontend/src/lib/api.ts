@@ -36,3 +36,20 @@ export async function resumeChat(
 
   return response.json() as Promise<ApiResponse<ChatStartData>>
 }
+
+export async function sendFeedback(
+  messageId: string,
+  rating: 'positive' | 'negative',
+): Promise<ApiResponse<void>> {
+  const response = await fetch(`${API_BASE}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id: messageId, rating }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`)
+  }
+
+  return response.json() as Promise<ApiResponse<void>>
+}

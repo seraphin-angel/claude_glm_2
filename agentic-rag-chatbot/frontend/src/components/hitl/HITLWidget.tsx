@@ -12,8 +12,8 @@ interface HITLWidgetProps {
 
 export function HITLWidget({ request, onRespond, disabled }: HITLWidgetProps) {
   return (
-    <div className="flex w-full justify-start mb-4">
-      <Card className="max-w-[85%] border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
+    <div className="flex w-full justify-start mb-4" role="dialog" aria-label="確認入力">
+      <Card className="max-w-[95%] sm:max-w-[85%] border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Badge variant="outline" className="text-amber-700 border-amber-300 dark:text-amber-300 dark:border-amber-700">

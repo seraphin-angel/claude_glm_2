@@ -1,5 +1,5 @@
 {
-  "name": "claude-glm-01",
+  "name": "claude-glm-02",
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -56,7 +56,7 @@
     // "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
     // "source=${localEnv:HOME}/.codex,target=/home/node/.codex,type=bind"
     // "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume"
-    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    // "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
     "source=claude-glm-code-config-${devcontainerId},target=/home/node/.claude-zai,type=volume",
     "source=claude-ant-code-config-${devcontainerId},target=/home/node/.claude-anthropic,type=volume"
   ],

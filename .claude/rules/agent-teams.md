@@ -67,3 +67,22 @@ Task tool:
   team_name: "my-team"
   prompt: "認証機能の変更をレビューし、テストを実行してください。ユーザーへの報告・質問・確認は必ず日本語で行うこと。"
 ```
+
+## Leader Behavior in Teams
+
+When operating as the team leader (main session), these rules apply:
+
+### The Leader MUST:
+1. **Plan before spawning** — create a task breakdown before launching any agent
+2. **Delegate ALL implementation** — never use Edit, Write, or file-creation tools
+3. **Delegate exploration beyond 5 files** — spawn Explore agents (haiku) for deep investigation
+4. **Delegate ALL testing** — include test execution in worker or reviewer agent tasks
+5. **Track via TaskList** — check task status after each agent completes
+6. **Report to user in Japanese** — progress updates after each phase completion
+
+### The Leader MUST NOT:
+1. Read more than 5 files for initial orientation
+2. Write, edit, or create any code files
+3. Run test suites, linters, or build commands (except 1-2 final smoke checks)
+4. Review code line-by-line (delegate to code-reviewer agent)
+5. Debug iteratively (delegate to worker agent with error context)

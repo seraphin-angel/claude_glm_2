@@ -1,11 +1,12 @@
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import chromadb
 import pytest
 
-from app.rag.document_loader import _generate_doc_id, _infer_category, load_markdown_file
+from app.config.settings import Settings
+from app.rag.document_loader import _build_header_prefix, _generate_doc_id, _infer_category, load_markdown_file
 from app.rag.retriever import retrieve_documents
 from app.rag.vector_store import VectorStore
 
@@ -224,6 +225,107 @@ class TestDocumentLoader:
         chunks = load_markdown_file(sample_markdown_file)
         for chunk in chunks:
             assert chunk["content"].strip() != ""
+
+
+# ---------------------------------------------------------------------------
+# チャンキング最適化のテスト
+# ---------------------------------------------------------------------------
+
+
+class TestChunkingOptimization:
+    def test_chunk_size_uses_settings(self, tmp_path: Path):
+        """chunk_size が settings の値に基づくことを確認"""
+        # セパレーター（句点）を含む長い日本語テキストを使用
+        sentences = ["あ" * 60 + "。"] * 20
+        content = "# タイトル\n\n" + "".join(sentences)
+        md_file = tmp_path / "test.md"
+        md_file.write_text(content, encoding="utf-8")
+
+        custom_settings = Settings(chunk_size=100, chunk_overlap=10)
+        with patch("app.rag.document_loader.get_settings", return_value=custom_settings):
+            chunks = load_markdown_file(md_file)
+
+        # chunk_size=100 の場合、長いコンテンツは複数チャンクに分割される
+        assert len(chunks) > 1
+
+    def test_chunk_size_large_produces_fewer_chunks(self, tmp_path: Path):
+        """chunk_size が大きい場合は chunk_size が小さい場合より少ないチャンクになることを確認"""
+        # セパレーター（句点）を含む長いテキスト
+        sentences = ["あいうえお" * 10 + "。"] * 30
+        content = "# タイトル\n\n" + "".join(sentences)
+        md_file = tmp_path / "test.md"
+        md_file.write_text(content, encoding="utf-8")
+
+        small_settings = Settings(chunk_size=100, chunk_overlap=10)
+        large_settings = Settings(chunk_size=5000, chunk_overlap=500)
+
+        with patch("app.rag.document_loader.get_settings", return_value=small_settings):
+            small_chunks = load_markdown_file(md_file)
+
+        with patch("app.rag.document_loader.get_settings", return_value=large_settings):
+            large_chunks = load_markdown_file(md_file)
+
+        assert len(small_chunks) > len(large_chunks)
+
+    def test_header_prefix_added_to_content(self, sample_markdown_file: Path):
+        """ヘッダー階層プレフィックスがコンテンツの先頭に付与されることを確認"""
+        chunks = load_markdown_file(sample_markdown_file)
+        # ヘッダーを持つチャンクはプレフィックスを持つ
+        prefixed = [c for c in chunks if c["content"].startswith("「")]
+        assert len(prefixed) > 0
+
+    def test_header_prefix_format(self, sample_markdown_file: Path):
+        """プレフィックスが「タイトル > セクション」形式であることを確認"""
+        chunks = load_markdown_file(sample_markdown_file)
+        for chunk in chunks:
+            content = chunk["content"]
+            if content.startswith("「"):
+                # 「...」\n の形式を確認
+                assert "」\n" in content
+
+    def test_missing_headers_no_error(self, tmp_path: Path):
+        """ヘッダーが欠損していてもエラーにならないことを確認"""
+        content = "ヘッダーなしのコンテンツです。"
+        md_file = tmp_path / "noheader.md"
+        md_file.write_text(content, encoding="utf-8")
+
+        chunks = load_markdown_file(md_file)
+        assert len(chunks) > 0
+        # ヘッダーなしのチャンクはプレフィックスなし
+        for chunk in chunks:
+            assert chunk["content"].strip() != ""
+
+
+class TestBuildHeaderPrefix:
+    def test_all_headers_present(self):
+        """title, section, subsection がすべてある場合"""
+        metadata = {"title": "製品ガイド", "section": "基本操作", "subsection": "ログイン方法"}
+        prefix = _build_header_prefix(metadata)
+        assert prefix == "「製品ガイド > 基本操作 > ログイン方法」\n"
+
+    def test_only_title(self):
+        """title のみある場合"""
+        metadata = {"title": "製品ガイド"}
+        prefix = _build_header_prefix(metadata)
+        assert prefix == "「製品ガイド」\n"
+
+    def test_title_and_section(self):
+        """title と section がある場合"""
+        metadata = {"title": "製品ガイド", "section": "基本操作"}
+        prefix = _build_header_prefix(metadata)
+        assert prefix == "「製品ガイド > 基本操作」\n"
+
+    def test_empty_metadata_returns_empty_string(self):
+        """ヘッダーが一切ない場合は空文字列を返す"""
+        metadata = {}
+        prefix = _build_header_prefix(metadata)
+        assert prefix == ""
+
+    def test_none_values_ignored(self):
+        """None値のヘッダーは無視される"""
+        metadata = {"title": "製品ガイド", "section": None, "subsection": None}
+        prefix = _build_header_prefix(metadata)
+        assert prefix == "「製品ガイド」\n"
 
 
 # ---------------------------------------------------------------------------

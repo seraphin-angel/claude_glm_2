@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config.settings import get_settings
 from app.rate_limit import limiter
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup: ドキュメントをロード
     try:
+        from app.rag.bm25_store import BM25Store
         from app.rag.document_loader import load_all_documents
         from app.rag.vector_store import VectorStore
 
@@ -25,6 +27,10 @@ async def lifespan(app: FastAPI):
             logger.info(f"Loaded {count} document chunks into vector store")
         else:
             logger.info(f"Vector store already has {store.count} documents")
+
+        bm25 = BM25Store.get_instance()
+        bm25.build_index_from_vector_store(store)
+        logger.info("BM25 index built successfully")
     except Exception as e:
         logger.warning(f"Failed to load documents: {e}")
 
@@ -32,6 +38,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down")
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
@@ -54,14 +69,18 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=settings.cors_allowed_methods,
+        allow_headers=settings.cors_allowed_headers,
     )
+    app.add_middleware(SecurityHeadersMiddleware)
 
-    from app.api import chat_router, health_router
+    from app.api import admin_router, chat_router, feedback_router, health_router, knowledge_router
 
     app.include_router(health_router)
     app.include_router(chat_router)
+    app.include_router(admin_router)
+    app.include_router(feedback_router)
+    app.include_router(knowledge_router)
 
     return app
 

@@ -3,6 +3,8 @@ from langchain_core.tools import tool
 
 from app.agents.llm_factory import get_llm
 from app.agents.output_models import RelevanceOutput
+from app.config.settings import get_settings
+from app.services.gap_service import KnowledgeGapService
 
 
 @tool
@@ -16,6 +18,16 @@ def check_relevance(query: str, search_results: list[dict]) -> dict:
     Returns:
         関連性評価結果（is_relevant, score, relevant_docs, reason）
     """
+    settings = get_settings()
+    avg_score = sum(d.get("relevance_score", 0) for d in search_results) / max(len(search_results), 1)
+    if avg_score >= settings.relevance_skip_threshold:
+        return {
+            "is_relevant": True,
+            "score": avg_score,
+            "relevant_doc_indices": list(range(len(search_results))),
+            "reason": "高スコアのためLLM評価をスキップしました",
+        }
+
     llm = get_llm(temperature=0.0)
     structured_llm = llm.with_structured_output(RelevanceOutput)
 
@@ -37,17 +49,24 @@ def check_relevance(query: str, search_results: list[dict]) -> dict:
 
     try:
         result = (prompt | structured_llm).invoke({"query": query, "docs_text": docs_text})
-        return {
+        output = {
             "is_relevant": result.is_relevant,
             "score": result.score,
             "relevant_doc_indices": result.relevant_doc_indices,
             "reason": result.reason or "",
         }
+        if not output["is_relevant"]:
+            KnowledgeGapService.get_instance().record_gap(query, reason=output["reason"])
+        return output
     except Exception:
         avg_score = sum(d.get("relevance_score", 0) for d in search_results) / max(len(search_results), 1)
+        is_relevant = avg_score > 0.5
+        fallback_reason = "LLM評価に失敗したため、スコアベースで判定しました"
+        if not is_relevant:
+            KnowledgeGapService.get_instance().record_gap(query, reason=fallback_reason)
         return {
-            "is_relevant": avg_score > 0.5,
+            "is_relevant": is_relevant,
             "score": avg_score,
             "relevant_doc_indices": list(range(len(search_results))),
-            "reason": "LLM評価に失敗したため、スコアベースで判定しました",
+            "reason": fallback_reason,
         }

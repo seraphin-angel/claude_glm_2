@@ -234,7 +234,7 @@ class TestSearchKnowledge:
             }
         ]
 
-        with patch("app.agents.tools.search.retrieve_documents", return_value=mock_docs):
+        with patch("app.agents.tools.search.hybrid_retrieve", return_value=mock_docs):
             result = search_knowledge.invoke({"query": "ログイン"})
 
         assert len(result) == 1
@@ -243,7 +243,7 @@ class TestSearchKnowledge:
 
     def test_search_empty_results_returns_fallback(self):
         """検索結果が空の場合にフォールバックメッセージが返されることを確認"""
-        with patch("app.agents.tools.search.retrieve_documents", return_value=[]):
+        with patch("app.agents.tools.search.hybrid_retrieve", return_value=[]):
             result = search_knowledge.invoke({"query": "存在しない情報"})
 
         assert len(result) == 1
@@ -261,7 +261,7 @@ class TestSearchKnowledge:
             }
         ]
 
-        with patch("app.agents.tools.search.retrieve_documents", return_value=mock_docs) as mock_retrieve:
+        with patch("app.agents.tools.search.hybrid_retrieve", return_value=mock_docs) as mock_retrieve:
             result = search_knowledge.invoke({
                 "query": "料金プラン",
                 "category": "契約・料金",
@@ -282,7 +282,7 @@ class TestSearchKnowledge:
             for i in range(3)
         ]
 
-        with patch("app.agents.tools.search.retrieve_documents", return_value=mock_docs):
+        with patch("app.agents.tools.search.hybrid_retrieve", return_value=mock_docs):
             result = search_knowledge.invoke({"query": "テスト", "n_results": 3})
 
         assert len(result) == 3
@@ -296,6 +296,11 @@ class TestSearchKnowledge:
 class TestCheckRelevance:
     def test_relevance_high_returns_true(self):
         """関連性が高い場合に is_relevant=True が返されることを確認"""
+        from app.config.settings import Settings
+
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.relevance_skip_threshold = 0.85
+
         mock_llm, _ = _make_structured_llm_mock(
             RelevanceOutput(
                 is_relevant=True,
@@ -305,12 +310,14 @@ class TestCheckRelevance:
             )
         )
 
+        # 平均スコア = (0.78 + 0.72) / 2 = 0.75 < 0.85 → LLM呼び出し発生
         search_results = [
-            {"content": "ログイン方法の詳細説明", "relevance_score": 0.88},
-            {"content": "パスワードリセット手順", "relevance_score": 0.82},
+            {"content": "ログイン方法の詳細説明", "relevance_score": 0.78},
+            {"content": "パスワードリセット手順", "relevance_score": 0.72},
         ]
 
-        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm):
+        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.relevance.get_settings", return_value=mock_settings):
             result = check_relevance.invoke({
                 "query": "ログインできない場合の対処法",
                 "search_results": search_results,
@@ -430,6 +437,66 @@ class TestCheckRelevance:
         # 空リストの場合 avg_score=0 → is_relevant=False
         assert result["is_relevant"] is False
         assert result["score"] == 0.0
+
+    def test_relevance_skip_llm_when_high_score(self):
+        """平均スコアが relevance_skip_threshold 以上の場合、LLM呼び出しをスキップすることを確認"""
+        from unittest.mock import MagicMock, patch
+        from app.config.settings import Settings
+
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.relevance_skip_threshold = 0.85
+
+        mock_llm = MagicMock()
+
+        search_results = [
+            {"content": "高関連ドキュメント1", "relevance_score": 0.90},
+            {"content": "高関連ドキュメント2", "relevance_score": 0.88},
+        ]
+
+        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.relevance.get_settings", return_value=mock_settings):
+            result = check_relevance.invoke({
+                "query": "テスト質問",
+                "search_results": search_results,
+            })
+
+        # 平均スコア = (0.90 + 0.88) / 2 = 0.89 >= 0.85 → LLMスキップ
+        mock_llm.assert_not_called()
+        assert result["is_relevant"] is True
+        assert result["score"] == pytest.approx(0.89)
+        assert "高スコアのためLLM評価をスキップしました" in result["reason"]
+
+    def test_relevance_no_skip_when_below_threshold(self):
+        """平均スコアが relevance_skip_threshold 未満の場合、LLM呼び出しが行われることを確認"""
+        from app.config.settings import Settings
+
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.relevance_skip_threshold = 0.85
+
+        mock_llm, _ = _make_structured_llm_mock(
+            RelevanceOutput(
+                is_relevant=True,
+                score=0.75,
+                relevant_doc_indices=[0],
+                reason="LLMによる評価",
+            )
+        )
+
+        search_results = [
+            {"content": "中程度のドキュメント", "relevance_score": 0.80},
+            {"content": "低いドキュメント", "relevance_score": 0.60},
+        ]
+
+        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.relevance.get_settings", return_value=mock_settings):
+            result = check_relevance.invoke({
+                "query": "テスト質問",
+                "search_results": search_results,
+            })
+
+        # 平均スコア = (0.80 + 0.60) / 2 = 0.70 < 0.85 → LLM呼び出し発生
+        mock_llm.with_structured_output.assert_called_once()
+        assert result["score"] == 0.75
 
 
 # ===========================================================================

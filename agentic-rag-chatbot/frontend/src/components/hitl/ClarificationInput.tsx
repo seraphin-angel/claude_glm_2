@@ -39,11 +39,13 @@ export function ClarificationInput({ onSubmit, disabled, placeholder }: Clarific
         placeholder={placeholder ?? '回答を入力してください...'}
         disabled={disabled}
         className="flex-1"
+        aria-label="回答入力"
       />
       <Button
         onClick={handleSubmit}
         disabled={disabled || !value.trim()}
         size="icon"
+        aria-label="回答を送信"
       >
         <Send className="h-4 w-4" />
       </Button>

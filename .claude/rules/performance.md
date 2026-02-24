@@ -38,6 +38,19 @@ For complex tasks requiring deep reasoning:
 3. "Rev the engine" with multiple critique rounds
 4. Use split role sub-agents for diverse analysis
 
+## Delegation as Context-Saving Strategy
+
+The most effective way to conserve the leader's context window is delegation:
+
+| Action | Leader Context Cost | Delegated Cost |
+|--------|-------------------|----------------|
+| Read 20 files | ~40% | 0% (Explore agent) |
+| Write implementation | ~30% | 0% (Worker agent) |
+| Run and debug tests | ~20% | 0% (Reviewer agent) |
+| Detailed code review | ~15% | 0% (Reviewer agent) |
+
+By delegating, leader context usage drops from ~100% to ~35% (planning + coordination + result review), leaving room for managing multi-phase projects without context exhaustion.
+
 ## Build Troubleshooting
 
 If build fails:

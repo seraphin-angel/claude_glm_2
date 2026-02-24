@@ -3,6 +3,7 @@ from pathlib import Path
 
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
+from app.config.settings import get_settings
 from app.rag.vector_store import VectorStore
 
 
@@ -12,8 +13,21 @@ def _generate_doc_id(content: str, source: str) -> str:
     return hashlib.md5(hash_input.encode()).hexdigest()
 
 
+def _build_header_prefix(metadata: dict) -> str:
+    """metadataのヘッダー階層からプレフィックス文字列を生成する"""
+    parts = []
+    for key in ("title", "section", "subsection"):
+        value = metadata.get(key)
+        if value:
+            parts.append(value)
+    if not parts:
+        return ""
+    return "「" + " > ".join(parts) + "」\n"
+
+
 def load_markdown_file(file_path: Path) -> list[dict]:
     """Markdownファイルを読み込みチャンクに分割"""
+    settings = get_settings()
     content = file_path.read_text(encoding="utf-8")
 
     # Markdownヘッダーで分割
@@ -27,8 +41,8 @@ def load_markdown_file(file_path: Path) -> list[dict]:
 
     # さらに文字数で分割
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
         separators=["\n\n", "\n", "。", "、", " "],
     )
 
@@ -40,8 +54,9 @@ def load_markdown_file(file_path: Path) -> list[dict]:
             metadata["source"] = file_path.name
             # ファイル名からカテゴリを推定
             metadata["category"] = _infer_category(file_path.stem)
+            prefix = _build_header_prefix(metadata)
             chunks.append({
-                "content": text,
+                "content": prefix + text,
                 "metadata": metadata,
                 "id": _generate_doc_id(text, str(file_path)),
             })

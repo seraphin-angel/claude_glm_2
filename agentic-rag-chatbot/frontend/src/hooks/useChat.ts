@@ -1,7 +1,13 @@
 import { useState, useCallback, useRef } from 'react'
 import type { Message, ChatStatus, HITLRequest, ChatEvent } from '@/types/message'
 import { sendMessage, resumeChat } from '@/lib/api'
+import type { SSEConnection } from '@/lib/sse'
 import { createSSEConnection, closeSSEConnection } from '@/lib/sse'
+
+interface ToolHistoryEntry {
+  readonly name: string
+  readonly status: 'running' | 'done'
+}
 
 interface UseChatReturn {
   readonly messages: readonly Message[]
@@ -9,9 +15,12 @@ interface UseChatReturn {
   readonly streamingContent: string
   readonly currentHITL: HITLRequest | null
   readonly activeTool: string | null
+  readonly toolHistory: readonly ToolHistoryEntry[]
   readonly error: string | null
   readonly send: (message: string) => Promise<void>
   readonly respondToHITL: (response: string) => Promise<void>
+  readonly resetConversation: () => void
+  readonly retryLastMessage: () => Promise<void>
 }
 
 export function useChat(): UseChatReturn {
@@ -20,10 +29,11 @@ export function useChat(): UseChatReturn {
   const [streamingContent, setStreamingContent] = useState('')
   const [currentHITL, setCurrentHITL] = useState<HITLRequest | null>(null)
   const [activeTool, setActiveTool] = useState<string | null>(null)
+  const [toolHistory, setToolHistory] = useState<readonly ToolHistoryEntry[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const threadIdRef = useRef<string | null>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const eventSourceRef = useRef<SSEConnection | null>(null)
   const streamingContentRef = useRef('')
   const statusRef = useRef<ChatStatus>('idle')
 
@@ -36,17 +46,26 @@ export function useChat(): UseChatReturn {
     switch (event.type) {
       case 'token':
         if (event.content) {
+          setError(null)
           streamingContentRef.current += event.content
           setStreamingContent(streamingContentRef.current)
         }
         break
 
       case 'tool_start':
-        setActiveTool(event.tool_name ?? null)
+        if (event.tool_name) {
+          setActiveTool(event.tool_name)
+          setToolHistory((prev) => [...prev, { name: event.tool_name!, status: 'running' }])
+        }
         break
 
       case 'tool_end':
         setActiveTool(null)
+        setToolHistory((prev) =>
+          prev.map((entry) =>
+            entry.status === 'running' ? { ...entry, status: 'done' } : entry,
+          ),
+        )
         break
 
       case 'hitl_request':
@@ -108,10 +127,16 @@ export function useChat(): UseChatReturn {
       threadId,
       handleEvent,
       () => {
-        // SSE接続エラー
+        // 最大リトライ数を超えた場合
         if (statusRef.current !== 'hitl_pending') {
           setError('接続が切断されました')
           updateStatus('error')
+        }
+      },
+      (attempt: number) => {
+        // リトライ中の状態を表示
+        if (statusRef.current !== 'hitl_pending') {
+          setError(`再接続中...（${attempt}/3）`)
         }
       },
     )
@@ -119,6 +144,7 @@ export function useChat(): UseChatReturn {
   }, [handleEvent, updateStatus])
 
   const send = useCallback(async (content: string) => {
+    setToolHistory([])
     // ユーザーメッセージを追加
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -141,6 +167,28 @@ export function useChat(): UseChatReturn {
       updateStatus('error')
     }
   }, [connectSSE, updateStatus])
+
+  const resetConversation = useCallback(() => {
+    closeSSEConnection(eventSourceRef.current)
+    eventSourceRef.current = null
+    threadIdRef.current = null
+    streamingContentRef.current = ''
+    statusRef.current = 'idle'
+    setMessages([])
+    setStatus('idle')
+    setStreamingContent('')
+    setCurrentHITL(null)
+    setActiveTool(null)
+    setToolHistory([])
+    setError(null)
+  }, [])
+
+  const retryLastMessage = useCallback(async () => {
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUserMessage) return
+    setError(null)
+    await send(lastUserMessage.content)
+  }, [messages, send])
 
   const respondToHITL = useCallback(async (response: string) => {
     if (!currentHITL || !threadIdRef.current) return
@@ -176,8 +224,11 @@ export function useChat(): UseChatReturn {
     streamingContent,
     currentHITL,
     activeTool,
+    toolHistory,
     error,
     send,
     respondToHITL,
+    resetConversation,
+    retryLastMessage,
   }
 }
