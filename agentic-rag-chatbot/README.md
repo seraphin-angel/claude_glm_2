@@ -64,13 +64,20 @@ http://localhost:5173 でアクセス
 |--------|------|-------------|
 | OPENAI_API_KEY | OpenAI API キー | (必須) |
 | OPENAI_MODEL | 使用するモデル | gpt-4o-mini |
+| EMBEDDING_MODEL | 埋め込みモデル | intfloat/multilingual-e5-base |
 | CHROMA_PERSIST_DIR | ChromaDB 保存先 | ./data/chroma_db |
-| CHROMA_COLLECTION_NAME | コレクション名 | product_support |
+| CHROMA_COLLECTION_NAME | コレクション名 | product_support_v2 |
+| CHUNK_SIZE | チャンクサイズ | 800 |
+| CHUNK_OVERLAP | チャンクオーバーラップ | 100 |
+| RELEVANCE_SKIP_THRESHOLD | 関連性評価スキップ閾値 | 0.85 |
+| HYBRID_SEARCH_ALPHA | ハイブリッド検索のベクトル重み | 0.7 |
 | JWT_SECRET_KEY | JWT 署名用シークレットキー | (本番では必ず変更) |
 | JWT_ALGORITHM | JWT 署名アルゴリズム | HS256 |
 | JWT_EXPIRE_MINUTES | JWT トークン有効期限（分） | 60 |
-| RATE_LIMIT_CHAT | チャット API レート制限 | 10/minute |
+| RATE_LIMIT_CHAT | チャット API レート制限 | 20/minute |
 | RATE_LIMIT_STREAM | ストリーム API レート制限 | 30/minute |
+| CORS_ALLOWED_METHODS | CORS 許可メソッド | GET,POST,OPTIONS |
+| CORS_ALLOWED_HEADERS | CORS 許可ヘッダー | Authorization,Content-Type |
 | DEBUG_MODE | デバッグモード（エラー詳細表示） | false |
 
 ## API エンドポイント
@@ -81,6 +88,12 @@ http://localhost:5173 でアクセス
 | POST | /api/chat | JWT | チャット開始/メッセージ送信 |
 | GET | /api/chat/stream/{thread_id} | JWT | SSE ストリーム |
 | POST | /api/chat/resume/{thread_id} | JWT | HITL 再開 |
+| POST | /api/feedback | JWT | フィードバック送信 |
+| GET | /api/admin/knowledge | JWT | ドキュメント一覧 |
+| POST | /api/admin/knowledge | JWT | ドキュメント追加 |
+| GET | /api/admin/knowledge/{id} | JWT | ドキュメント取得 |
+| DELETE | /api/admin/knowledge/{id} | JWT | ドキュメント削除 |
+| GET | /api/admin/knowledge-gaps | JWT | ギャップ一覧 |
 
 > `/api/health` 以外の全エンドポイントは `Authorization: Bearer <token>` ヘッダーが必要です。
 

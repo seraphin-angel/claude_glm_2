@@ -1,7 +1,8 @@
 # Agentic RAG チャットボット — システム仕様書
 
-> バージョン: 0.1.0
+> バージョン: 0.2.0
 > 作成日: 2026-02-22
+> 最終更新: 2026-02-24 (P1完了反映)
 
 ---
 
@@ -56,6 +57,9 @@
 | テキスト分割 | langchain-text-splitters | >=0.3.0 |
 | レート制限 | slowapi | >=0.1.9 |
 | JWT 認証 | python-jose[cryptography] | >=3.3.0 |
+| 埋め込みモデル | sentence-transformers | >=3.0.0 |
+| BM25検索 | rank_bm25 | >=0.2.2 |
+| 日本語トークナイザー | fugashi | >=1.3.0 |
 | Python | Python | >=3.11 |
 
 #### フロントエンド
@@ -68,6 +72,9 @@
 | スタイリング | Tailwind CSS | ^4.2.0 |
 | UI コンポーネント | Radix UI (scroll-area, slot) | 最新 |
 | アイコン | lucide-react | ^0.575.0 |
+| Markdownレンダリング | react-markdown | ^10.1.0 |
+| GFM対応 | remark-gfm | ^4.0.1 |
+| タイポグラフィ | @tailwindcss/typography | ^0.5.16" |
 
 ---
 
@@ -169,7 +176,10 @@ agentic-rag-chatbot/
 │   │   ├── api/
 │   │   │   ├── __init__.py          # ルーター集約
 │   │   │   ├── chat.py              # チャット API エンドポイント
-│   │   │   └── health.py            # ヘルスチェック
+│   │   │   ├── health.py            # ヘルスチェック
+│   │   │   ├── feedback.py          # フィードバック API (P1)
+│   │   │   ├── knowledge.py         # ナレッジ管理 API (P1)
+│   │   │   └── admin.py             # 管理者 API - ナレッジギャップ (P1)
 │   │   ├── auth/
 │   │   │   ├── __init__.py          # 公開関数エクスポート
 │   │   │   └── jwt_handler.py       # JWT トークン生成・検証
@@ -177,15 +187,15 @@ agentic-rag-chatbot/
 │   │   │   ├── agent.py             # Deep Agent 構築・シングルトン管理
 │   │   │   ├── llm_factory.py       # @lru_cache LLM ファクトリ
 │   │   │   ├── output_models.py     # StructuredOutput 用 Pydantic モデル
-│   │   │   ├── prompts.py           # システムプロンプト定義
+│   │   │   ├── prompts.py           # システムプロンプト定義 (カテゴリ別Few-shot含む)
 │   │   │   ├── state.py             # AgentState TypedDict
 │   │   │   └── tools/
 │   │   │       ├── __init__.py      # ツールのエクスポート
 │   │   │       ├── classify.py      # クエリ分類ツール
 │   │   │       ├── rewrite.py       # クエリリライトツール
 │   │   │       ├── search.py        # ナレッジ検索ツール
-│   │   │       ├── relevance.py     # 関連性評価ツール
-│   │   │       ├── generate.py      # 回答生成ツール
+│   │   │       ├── relevance.py     # 関連性評価ツール (ギャップ記録含む)
+│   │   │       ├── generate.py      # 回答生成ツール (カテゴリ別プロンプト)
 │   │   │       ├── quality.py       # 品質チェックツール
 │   │   │       └── ask_human.py     # HITL ツール
 │   │   ├── config/
@@ -196,13 +206,19 @@ agentic-rag-chatbot/
 │   │   │   ├── messages.py          # StreamEvent / StreamEventType
 │   │   │   └── hitl.py              # HITLRequest / HITLResponse / ResumeRequest
 │   │   ├── rag/
-│   │   │   ├── vector_store.py      # ChromaDB ラッパー
-│   │   │   ├── retriever.py         # ドキュメント検索関数
+│   │   │   ├── vector_store.py      # ChromaDB ラッパー (multilingual-e5-base)
+│   │   │   ├── bm25_store.py        # BM25 インデックス (P1)
+│   │   │   ├── retriever.py         # ハイブリッド検索 (BM25 + Vector + RRF)
 │   │   │   └── document_loader.py   # Markdown ローダー・チャンク分割
 │   │   └── services/
-│   │       └── chat_service.py      # ChatService・イベントキュー管理
+│   │       ├── chat_service.py      # ChatService・イベントキュー管理
+│   │       ├── feedback_service.py  # フィードバック永続化 (P1)
+│   │       ├── knowledge_service.py # ナレッジ CRUD (P1)
+│   │       └── gap_service.py       # ナレッジギャップ検出 (P1)
 │   ├── data/
 │   │   ├── chroma_db/               # ChromaDB 永続化ディレクトリ
+│   │   ├── feedback.json            # フィードバックデータ (P1)
+│   │   ├── knowledge_gaps.json      # ナレッジギャップデータ (P1)
 │   │   └── sample_docs/
 │   │       ├── product_guide.md     # 操作方法 FAQドキュメント
 │   │       ├── troubleshooting.md   # 障害・トラブル FAQドキュメント
@@ -216,7 +232,18 @@ agentic-rag-chatbot/
 │   │   ├── test_models.py
 │   │   ├── test_output_models.py    # StructuredOutput モデルテスト
 │   │   ├── test_rag.py
-│   │   └── test_tools.py
+│   │   ├── test_tools.py
+│   │   ├── test_bm25.py             # BM25検索テスト (P1)
+│   │   ├── test_cors.py             # CORS設定テスト (P1)
+│   │   ├── test_feedback.py         # フィードバックテスト (P1)
+│   │   ├── test_gap_service.py      # ナレッジギャップテスト (P1)
+│   │   ├── test_golden.py           # ゴールデンデータセットテスト (P1)
+│   │   ├── test_knowledge.py        # ナレッジ管理テスト (P1)
+│   │   ├── test_prompts.py          # カテゴリ別プロンプトテスト (P1)
+│   │   ├── test_security_headers.py # セキュリティヘッダーテスト (P1)
+│   │   └── golden/
+│   │       ├── __init__.py
+│   │       └── questions.json       # ゴールデンQ&Aデータセット (P1)
 │   └── pyproject.toml
 └── frontend/
     ├── src/
@@ -226,19 +253,27 @@ agentic-rag-chatbot/
     │   │   │   ├── ChatWindow.tsx   # チャットメイン UI
     │   │   │   ├── MessageList.tsx  # メッセージ一覧
     │   │   │   ├── MessageBubble.tsx # 吹き出し
-    │   │   │   ├── ChatInput.tsx    # テキスト入力
-    │   │   │   └── TypingIndicator.tsx # タイピングアニメーション
+    │   │   │   ├── ChatInput.tsx    # テキスト入力 (textarea)
+    │   │   │   ├── TypingIndicator.tsx # タイピングアニメーション
+    │   │   │   ├── MarkdownRenderer.tsx # Markdownレンダリング (P1)
+    │   │   │   ├── SuggestChips.tsx # サジェストチップ (P1)
+    │   │   │   ├── ToolProgress.tsx # ツール実行可視化 (P1)
+    │   │   │   ├── MessageFeedback.tsx # フィードバックボタン (P1)
+    │   │   │   └── ErrorRecovery.tsx # エラーリカバリ (P1)
     │   │   ├── hitl/
     │   │   │   ├── HITLWidget.tsx   # HITL コンテナ
     │   │   │   ├── ClarificationButtons.tsx # ボタン選択UI
     │   │   │   └── ClarificationInput.tsx   # テキスト入力UI
+    │   │   ├── ui/
+    │   │   │   └── textarea.tsx     # shadcn/ui Textarea (P1)
     │   │   └── ErrorBoundary.tsx    # エラーバウンダリ
     │   ├── hooks/
     │   │   ├── useChat.ts           # チャット状態管理フック
     │   │   └── useAutoScroll.ts     # 自動スクロールフック
     │   ├── lib/
     │   │   ├── api.ts               # REST API クライアント
-    │   │   └── sse.ts               # SSE 接続管理
+    │   │   ├── sse.ts               # SSE 接続管理 (自動リトライ付き)
+    │   │   └── tool-labels.ts       # ツール名日本語ラベル (P1)
     │   └── types/
     │       ├── message.ts           # Message / ChatEvent / ChatStatus 型
     │       └── api.ts               # ApiResponse / ChatStartData 型
@@ -260,9 +295,15 @@ agentic-rag-chatbot/
 | POST | `/api/chat` | JWT 必須 | チャット開始・メッセージ送信 |
 | GET | `/api/chat/stream/{thread_id}` | JWT 必須 | SSE ストリーム接続 |
 | POST | `/api/chat/resume/{thread_id}` | JWT 必須 | HITL 中断からの再開 |
+| POST | `/api/feedback` | JWT 必須 | フィードバック送信 (P1) |
+| GET | `/api/admin/knowledge` | JWT 必須 | ドキュメント一覧取得 (P1) |
+| POST | `/api/admin/knowledge` | JWT 必須 | ドキュメント追加 (P1) |
+| GET | `/api/admin/knowledge/{doc_id}` | JWT 必須 | 個別ドキュメント取得 (P1) |
+| DELETE | `/api/admin/knowledge/{doc_id}` | JWT 必須 | ドキュメント削除 (P1) |
+| GET | `/api/admin/knowledge-gaps` | JWT 必須 | ナレッジギャップ一覧 (P1) |
 
 > **認証:** `/api/health` を除く全エンドポイントに JWT Bearer トークンが必要。`Authorization: Bearer <token>` ヘッダーで送信する。
-> **レート制限:** チャット系エンドポイントは `slowapi` によるレート制限あり（デフォルト: チャット `10/minute`、ストリーム `30/minute`）。
+> **レート制限:** チャット系エンドポイントは `slowapi` によるレート制限あり（デフォルト: チャット `20/minute`、ストリーム `30/minute`）。
 
 #### GET /api/health
 
@@ -347,6 +388,163 @@ HITL によって中断されたエージェントを再開する。
   "data": {
     "thread_id": "550e8400-e29b-41d4-a716-446655440000",
     "status": "streaming"
+  }
+}
+```
+
+#### POST /api/feedback
+
+アシスタントメッセージに対するフィードバックを送信する。
+
+**リクエスト:**
+```json
+{
+  "message_id": "msg-uuid",
+  "rating": "positive",
+  "comment": "参考になりました"
+}
+```
+
+| フィールド | 型 | 必須 | 説明 |
+|-----------|-----|------|------|
+| `message_id` | string | 必須 | メッセージID |
+| `rating` | string | 必須 | 評価 (`positive` / `negative`) |
+| `comment` | string \| null | 任意 | コメント（任意） |
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "feedback-uuid",
+    "created_at": "2026-02-24T12:00:00Z"
+  }
+}
+```
+
+#### GET /api/admin/knowledge
+
+ドキュメント一覧を取得する。
+
+**クエリパラメータ:**
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|-----|-----------|------|
+| `category` | string \| null | null | カテゴリフィルタ |
+| `limit` | int | 100 | 取得件数 |
+| `offset` | int | 0 | オフセット |
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "documents": [
+      {
+        "id": "doc-uuid",
+        "content": "...",
+        "metadata": {"category": "操作方法", "source": "product_guide.md"},
+        "created_at": "2026-02-24T12:00:00Z"
+      }
+    ],
+    "total": 150
+  }
+}
+```
+
+#### POST /api/admin/knowledge
+
+ドキュメントを追加する。追加時にBM25インデックスとベクトルストアの両方が更新される。
+
+**リクエスト:**
+```json
+{
+  "content": "新しいドキュメントの内容...",
+  "metadata": {
+    "category": "操作方法",
+    "source": "custom"
+  }
+}
+```
+
+| フィールド | 型 | 必須 | 説明 |
+|-----------|-----|------|------|
+| `content` | string | 必須 | ドキュメント内容 |
+| `metadata` | object | 任意 | メタデータ（category, source 等） |
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "new-doc-uuid",
+    "created_at": "2026-02-24T12:00:00Z"
+  }
+}
+```
+
+#### GET /api/admin/knowledge/{doc_id}
+
+個別ドキュメントを取得する。
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "doc-uuid",
+    "content": "...",
+    "metadata": {"category": "操作方法", "source": "product_guide.md"},
+    "created_at": "2026-02-24T12:00:00Z"
+  }
+}
+```
+
+#### DELETE /api/admin/knowledge/{doc_id}
+
+ドキュメントを削除する。削除時にBM25インデックスが再構築される。
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "deleted_id": "doc-uuid"
+  }
+}
+```
+
+#### GET /api/admin/knowledge-gaps
+
+回答できなかった質問（ナレッジギャップ）の一覧を取得する。
+
+**クエリパラメータ:**
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|-----|-----------|------|
+| `limit` | int | 100 | 取得件数 |
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "total": 45,
+      "unique_queries": 32,
+      "top_queries": [
+        {"query": "XXXの使い方", "count": 5},
+        {"query": "YYYが動かない", "count": 3}
+      ]
+    },
+    "gaps": [
+      {
+        "id": "gap-uuid",
+        "query": "XXXの使い方",
+        "category": "操作方法",
+        "created_at": "2026-02-24T12:00:00Z"
+      }
+    ]
   }
 }
 ```
@@ -523,15 +721,31 @@ flowchart TD
 - **重要ルール**: ナレッジベースの検索結果に基づいた回答のみ行う。範囲外（天気・ニュース等）には対応しない
 - **回答フォーマット**: 簡潔・番号付きリスト・「ご不明な点がございましたら、お気軽にお問い合わせください。」で締める
 
+#### カテゴリ別プロンプトとFew-shot（P1）
+
+`CATEGORY_PROMPTS`（`app/agents/prompts.py`）はカテゴリごとの専用プロンプトと模範回答例を定義する。
+
+| カテゴリ | プロンプトの特徴 | Few-shot例 |
+|----------|-----------------|-----------|
+| **操作方法** | 手順をステップごとに明確に説明 | 「初期設定の方法を教えて」→ 番号付きリストで手順回答 |
+| **障害・トラブル** | 原因切り分け→対処法の順で説明 | 「ログインできない」→ 原因候補→解決手順 |
+| **契約・料金** | 料金表・プラン比較を明確に | 「プランの違いは？」→ 比較表形式で回答 |
+
+**引用フォーマット指示:**
+回答には以下の形式で参照元を明記する。
+```
+【参考: {source} > {section}】
+```
+
 #### ツール一覧
 
 | ツール名 | 引数 | 戻り値 | 説明 |
 |----------|------|--------|------|
 | `classify_query` | `query: str` | `dict` (category, confidence, reason) | クエリをカテゴリに分類。unclear / confidence < 0.6 の場合は HITL で確認 |
 | `rewrite_query` | `query: str`, `conversation_context: str = ""` | `str` | 検索最適化のためクエリをリライト（代名詞解決・曖昧表現の具体化） |
-| `search_knowledge` | `query: str`, `category: str \| None = None`, `n_results: int = 5` | `list[dict]` | ChromaDB を検索して関連ドキュメントを返す |
-| `check_relevance` | `query: str`, `search_results: list[dict]` | `dict` (is_relevant, score, relevant_doc_indices, reason) | 検索結果とクエリの関連性を LLM で評価 |
-| `generate_answer` | `query: str`, `relevant_documents: list[dict]`, `category: str = ""` | `str` | 関連ドキュメントに基づいて回答を生成 |
+| `search_knowledge` | `query: str`, `category: str \| None = None`, `n_results: int = 5` | `list[dict]` | ハイブリッド検索（BM25 + Vector）で関連ドキュメントを返す |
+| `check_relevance` | `query: str`, `search_results: list[dict]` | `dict` (is_relevant, score, relevant_doc_indices, reason) | 検索結果とクエリの関連性を LLM で評価（高スコア時はスキップ可能） |
+| `generate_answer` | `query: str`, `relevant_documents: list[dict]`, `category: str = ""` | `str` | 関連ドキュメントに基づいて回答を生成（カテゴリ別プロンプト使用） |
 | `check_quality` | `query: str`, `answer: str`, `source_documents: list[dict]` | `dict` (passed, hallucination_score, sufficiency_score, issues) | ハルシネーション（偽情報）と充足性を評価。両スコア 0.6 以上で合格 |
 | `ask_human` | `question: str`, `options: list[str] \| None = None`, `input_type: str = "text"` | `str` | LangGraph `interrupt()` でエージェントを中断しユーザーに質問 |
 
@@ -549,20 +763,23 @@ flowchart TD
 - リライト結果が 3 文字未満の場合は元のクエリをそのまま返す
 
 **search_knowledge**
-- `retrieve_documents()` を呼び出し ChromaDB を検索
-- `category` 指定時は ChromaDB の `where` フィルタでカテゴリを絞り込む
+- `retrieve_documents()` を呼び出しハイブリッド検索（BM25 + Vector + RRF）を実行
+- `category` 指定時はフィルタでカテゴリを絞り込む
 - 結果が空の場合は「関連するドキュメントが見つかりませんでした。」を返す
 - 各結果: `{content, metadata, relevance_score, id}` の形式
 
 **check_relevance**
 - LLM（temperature=0）で関連性を総合評価
+- **高スコア時スキップ**: 検索結果の平均スコアが `relevance_skip_threshold`（0.85）以上の場合、LLM呼び出しをスキップして `is_relevant=true` を返す（コスト削減）
 - LLM パース失敗時: 検索スコアの平均値でフォールバック
+- **ナレッジギャップ記録**: `is_relevant=false` の場合、`KnowledgeGapService` にクエリを記録
 - 戻り値: `{"is_relevant": bool, "score": float, "relevant_doc_indices": list, "reason": str}`
 
 **generate_answer**
 - LLM（temperature=0.3）で回答生成
+- **カテゴリ別プロンプト**: `CATEGORY_PROMPTS[category]` でカテゴリ固有の指示とFew-shot例を使用
 - 参考情報に基づかない内容は「確認が必要です」と案内するよう指示
-- カテゴリ情報もプロンプトに含める
+- **引用フォーマット**: 回答に `【参考: {source} > {section}】` 形式で参照元を明記
 
 **check_quality**
 - LLM（temperature=0）で 2 軸評価
@@ -588,24 +805,30 @@ flowchart LR
         MD[("*.md ファイル<br/>sample_docs/")]
         LOAD["load_all_documents<br/>MarkdownLoader"]
         SPLIT["MarkdownHeaderTextSplitter<br/>#, ##, ### で分割"]
-        CHUNK["RecursiveCharacterTextSplitter<br/>chunk_size=500, overlap=50"]
+        CHUNK["RecursiveCharacterTextSplitter<br/>chunk_size=800, overlap=100"]
+        PREFIX["ヘッダー階層プレフィックス付与<br/>_build_header_prefix()"]
         META["メタデータ付与<br/>category / source"]
-        EMBED["ChromaDB<br/>デフォルト埋め込み"]
+        EMBED["ChromaDB<br/>multilingual-e5-base"]
         STORE[("ChromaDB<br/>PersistentClient")]
+        BM25[("BM25Store<br/>fugashiトークナイザー")]
     end
 
     subgraph Query["クエリ時"]
         Q[検索クエリ]
         FILTER{"category<br/>フィルタ?"}
-        SEARCH["collection.query<br/>cosine similarity"]
+        HYBRID["ハイブリッド検索<br/>BM25 + Vector"]
+        RRF["Reciprocal Rank Fusion<br/>K=60, alpha=0.7"]
         RESULT["検索結果整形<br/>content / metadata /<br/>relevance_score / id"]
     end
 
-    MD --> LOAD --> SPLIT --> CHUNK --> META --> EMBED --> STORE
+    MD --> LOAD --> SPLIT --> CHUNK --> PREFIX --> META --> EMBED --> STORE
+    META --> BM25
     Q --> FILTER
-    FILTER -->|あり| SEARCH
-    FILTER -->|なし| SEARCH
-    STORE --> SEARCH --> RESULT
+    FILTER -->|あり| HYBRID
+    FILTER -->|なし| HYBRID
+    STORE --> HYBRID
+    BM25 --> HYBRID
+    HYBRID --> RRF --> RESULT
 ```
 
 #### VectorStore の仕様
@@ -616,9 +839,9 @@ flowchart LR
 |------|-----|
 | クライアント | `chromadb.PersistentClient` |
 | 永続化ディレクトリ | `./data/chroma_db`（Settings で変更可能） |
-| コレクション名 | `product_support`（Settings で変更可能） |
+| コレクション名 | `product_support_v2`（Settings で変更可能） |
 | 距離メトリクス | cosine (`hnsw:space: cosine`) |
-| デフォルト埋め込みモデル | ChromaDB デフォルト（all-MiniLM-L6-v2） |
+| 埋め込みモデル | `intfloat/multilingual-e5-base`（SentenceTransformerEmbeddingFunction） |
 
 | メソッド | 引数 | 戻り値 | 説明 |
 |---------|------|--------|------|
@@ -628,6 +851,44 @@ flowchart LR
 | `query()` | query_text, n_results, where | dict | 類似検索 |
 | `count` (property) | なし | int | 格納済みドキュメント数 |
 
+#### BM25Store の仕様
+
+`BM25Store` クラス (`app/rag/bm25_store.py`) は BM25 キーワード検索を提供するシングルトンである。
+
+| 項目 | 値 |
+|------|-----|
+| アルゴリズム | `rank_bm25.BM25Okapi` |
+| トークナイザー | `fugashi`（日本語形態素解析） |
+| top_k | 10（Settings で変更可能） |
+
+| メソッド | 引数 | 戻り値 | 説明 |
+|---------|------|--------|------|
+| `get_instance()` | なし | BM25Store | シングルトン取得 |
+| `reset_instance()` | なし | None | インスタンスをリセット（テスト用） |
+| `index_documents()` | documents | None | ドキュメントをインデックス |
+| `search()` | query, n_results | list[dict] | BM25検索 |
+
+#### ハイブリッド検索（BM25 + Vector + RRF）
+
+`retrieve_documents()` (`app/rag/retriever.py`) は BM25 キーワード検索とベクトル類似検索を組み合わせたハイブリッド検索を実行する。
+
+**Reciprocal Rank Fusion (RRF) アルゴリズム:**
+
+```
+RRF_score(d) = alpha * (1 / (K + rank_vector(d))) + (1 - alpha) * (1 / (K + rank_bm25(d)))
+```
+
+- K = 60（RRF 定数）
+- alpha = 0.7（ベクトル検索の重み、Settings で変更可能）
+- alpha = 1.0 でベクトル検索のみモードに切り替え可能
+
+**検索パラメータ:**
+
+| パラメータ | 値 | 説明 |
+|-----------|-----|------|
+| `hybrid_search_alpha` | 0.7 | ベクトル:BM25 の重み付け（0.0〜1.0） |
+| `bm25_top_k` | 10 | BM25検索の取得件数 |
+
 #### ドキュメントローダーの処理フロー
 
 `load_all_documents()` (`app/rag/document_loader.py`) はアプリ起動時に `lifespan` イベントで呼び出される。
@@ -636,18 +897,29 @@ flowchart LR
 2. 各ファイルを `load_markdown_file()` で処理
 3. `MarkdownHeaderTextSplitter` でヘッダー（`#`, `##`, `###`）単位に分割
 4. `RecursiveCharacterTextSplitter` でさらに細かく分割
-5. メタデータを付与: `source`（ファイル名）、`category`（ファイル名から推定）
-6. ドキュメント ID は `md5(source:content[:100])` で生成
-7. `VectorStore.add_documents()` で一括格納
-8. アプリ起動時にベクトルストアが空（`count == 0`）の場合のみロードする
+5. **ヘッダー階層情報をプレフィックスとして付与**（`_build_header_prefix()`）
+6. メタデータを付与: `source`（ファイル名）、`category`（ファイル名から推定）
+7. ドキュメント ID は `md5(source:content[:100])` で生成
+8. `VectorStore.add_documents()` で一括格納
+9. アプリ起動時にベクトルストアが空（`count == 0`）の場合のみロードする
 
 #### チャンク分割パラメータ
 
 | パラメータ | 値 | 説明 |
 |-----------|-----|------|
-| `chunk_size` | 500 | チャンクの最大文字数 |
-| `chunk_overlap` | 50 | チャンク間のオーバーラップ文字数 |
+| `chunk_size` | 800 | チャンクの最大文字数 |
+| `chunk_overlap` | 100 | チャンク間のオーバーラップ文字数（約12.5%） |
 | `separators` | `["\n\n", "\n", "。", "、", " "]` | 優先分割文字（順位あり） |
+
+#### ヘッダー階層プレフィックス
+
+チャンクの冒頭にヘッダー階層情報を付与することで、コンテキストを保持する。
+
+**例:**
+```
+【操作方法 > 初期設定 > ステップ1】
+1. 電源ボタンを長押しします...
+```
 
 #### カテゴリ推定マッピング
 
@@ -660,13 +932,13 @@ flowchart LR
 
 **検索結果の整形:**
 
-`retrieve_documents()` (`app/rag/retriever.py`) は ChromaDB の生結果を以下の形式に整形する。
+`retrieve_documents()` (`app/rag/retriever.py`) はハイブリッド検索の結果を以下の形式に整形する。
 
 ```python
 {
     "content": str,           # ドキュメントテキスト
     "metadata": dict,         # ChromaDB メタデータ（category, source 等）
-    "relevance_score": float, # 1.0 - distance (cosine なので 0〜1)
+    "relevance_score": float, # RRF スコア（0〜1正規化）
     "id": str,                # ドキュメントID
 }
 ```
@@ -1128,15 +1400,22 @@ flowchart TD
 
 | 環境変数 | 型 | デフォルト | 説明 |
 |---------|-----|-----------|------|
-| `OPENAI_API_KEY` | str | `""` | OpenAI API キー（必須） |
+| `OPENAI_API_KEY` | SecretStr | `""` | OpenAI API キー（必須、SecretStr型でマスク） |
 | `OPENAI_MODEL` | str | `"gpt-4o-mini"` | 使用する OpenAI モデル名 |
 | `CORS_ORIGINS` | list[str] | `["http://localhost:5173", "http://localhost:3000"]` | CORS 許可オリジン一覧 |
+| `CORS_ALLOWED_METHODS` | list[str] | `["GET", "POST", "OPTIONS"]` | CORS 許可メソッド一覧 (P1) |
+| `CORS_ALLOWED_HEADERS` | list[str] | `["Authorization", "Content-Type"]` | CORS 許可ヘッダー一覧 (P1) |
 | `CHROMA_PERSIST_DIR` | str | `"./data/chroma_db"` | ChromaDB 永続化ディレクトリパス |
-| `CHROMA_COLLECTION_NAME` | str | `"product_support"` | ChromaDB コレクション名 |
-| `JWT_SECRET_KEY` | str | `"change-me-..."` | JWT 署名用シークレットキー（本番では必ず変更） |
+| `CHROMA_COLLECTION_NAME` | str | `"product_support_v2"` | ChromaDB コレクション名 |
+| `EMBEDDING_MODEL` | str | `"intfloat/multilingual-e5-base"` | 埋め込みモデル名 (P1) |
+| `CHUNK_SIZE` | int | `800` | チャンクサイズ (P1) |
+| `CHUNK_OVERLAP` | int | `100` | チャンクオーバーラップ (P1) |
+| `HYBRID_SEARCH_ALPHA` | float | `0.7` | ハイブリッド検索の重み付け (P1) |
+| `RELEVANCE_SKIP_THRESHOLD` | float | `0.85` | 高スコア時の関連性チェックスキップ閾値 (P1) |
+| `JWT_SECRET_KEY` | str | `"dev-secret-key-change-in-production"` | JWT 署名用シークレットキー（本番では必ず変更） |
 | `JWT_ALGORITHM` | str | `"HS256"` | JWT 署名アルゴリズム |
 | `JWT_EXPIRE_MINUTES` | int | `60` | JWT トークンの有効期限（分） |
-| `RATE_LIMIT_CHAT` | str | `"10/minute"` | チャットエンドポイントのレート制限 |
+| `RATE_LIMIT_CHAT` | str | `"20/minute"` | チャットエンドポイントのレート制限 |
 | `RATE_LIMIT_STREAM` | str | `"30/minute"` | ストリームエンドポイントのレート制限 |
 | `DEBUG_MODE` | bool | `false` | デバッグモード（true の場合、エラーレスポンスにスタックトレースを含める） |
 
@@ -1146,24 +1425,33 @@ flowchart TD
 
 ```python
 class Settings(BaseSettings):
-    app_version: str = "0.1.0"
-    openai_api_key: str = ""
+    app_version: str = "0.2.0"
+    openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-4o-mini"
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_allowed_methods: list[str] = ["GET", "POST", "OPTIONS"]
+    cors_allowed_headers: list[str] = ["Authorization", "Content-Type"]
     chroma_persist_dir: str = "./data/chroma_db"
-    chroma_collection_name: str = "product_support"
-    jwt_secret_key: str = "change-me-..."
+    chroma_collection_name: str = "product_support_v2"
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    jwt_secret_key: str = "dev-secret-key-change-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
-    rate_limit_chat: str = "10/minute"
+    rate_limit_chat: str = "20/minute"
     rate_limit_stream: str = "30/minute"
     debug_mode: bool = False
+    chunk_size: int = 800
+    chunk_overlap: int = 100
+    hybrid_search_alpha: float = 0.7
+    bm25_top_k: int = 10
+    relevance_skip_threshold: float = 0.85
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 ```
 
 - `.env` ファイルまたは環境変数から設定を読み込む
 - `@lru_cache` 付きの `get_settings()` 関数でシングルトンとして提供される
+- `openai_api_key` は `SecretStr` 型で、ログ出力時に `**********` にマスクされる
 
 ### Vite プロキシ設定
 
@@ -1198,6 +1486,15 @@ server: {
 | `tests/test_output_models.py` | StructuredOutput Pydantic モデルバリデーション |
 | `tests/test_rag.py` | RAG パイプライン（VectorStore, DocumentLoader, Retriever） |
 | `tests/test_integration.py` | エンドツーエンド統合テスト（認証付き） |
+| `tests/test_bm25.py` | BM25検索（インデックス作成・検索・日本語トークナイズ） (P1) |
+| `tests/test_cors.py` | CORS設定（許可メソッド・ヘッダー・オリジン） (P1) |
+| `tests/test_feedback.py` | フィードバック機能（送信・永続化・バリデーション） (P1) |
+| `tests/test_gap_service.py` | ナレッジギャップ検出（記録・集計・サマリー） (P1) |
+| `tests/test_golden.py` | ゴールデンデータセット（parametrize品質評価） (P1) |
+| `tests/test_knowledge.py` | ナレッジ管理API（CRUD・インデックス再構築） (P1) |
+| `tests/test_prompts.py` | カテゴリ別プロンプト（Few-shot・引用フォーマット） (P1) |
+| `tests/test_security_headers.py` | セキュリティヘッダー（X-Frame-Options等） (P1) |
+| `tests/test_settings.py` | 設定値（SecretStrマスク・環境変数読み込み） (P1) |
 
 ### テスト設定
 
@@ -1213,7 +1510,7 @@ server: {
 
 目標カバレッジ: 80% 以上。
 
-テスト合計行数: 約 2,376 行。
+テスト合計数: 330 テスト（P1完了時点）。
 
 各レイヤーのテスト戦略:
 - **モデルテスト**: バリデーションルール、フィールドのデフォルト値、enum 値の検証
@@ -1251,8 +1548,8 @@ server: {
 |------|----|
 | ソースファイル数 | 3 ファイル |
 | 総行数 | 約 810 行 |
-| 想定チャンク数 | 数十〜百チャンク程度（chunk_size=500, overlap=50） |
-| ChromaDB コレクション | `product_support` |
+| 想定チャンク数 | 数十〜百チャンク程度（chunk_size=800, overlap=100） |
+| ChromaDB コレクション | `product_support_v2` |
 
 ---
 
@@ -1265,11 +1562,25 @@ server: {
 | **インメモリ状態管理** | `MemorySaver` はプロセス再起動で会話履歴が消失する |
 | **インメモリキュー** | `ChatService._queues` / `_tasks` はプロセスメモリに保持されるため、マルチプロセス・水平スケーリング不可 |
 | **スレッドクリーンアップ** | SSE 終了時に `finally` で `cleanup()` を呼び出すが、SSE 未接続のまま放置されたキューは LRU eviction（上限 1000）に依存する |
-| **CORS** | デフォルトで `localhost:5173` と `localhost:3000` のみ許可 |
-| **ドキュメントの重複ロード** | `store.count == 0` チェックのみ。ドキュメント更新時は手動で ChromaDB を削除する必要がある |
+| **ドキュメント更新** | ドキュメント追加・削除はAPIで可能だが、更新（PUT）は未実装。更新時は削除→追加で対応 |
 | **LLM 呼び出しの多さ** | 1 回の回答生成で最大 5〜6 回（classify, rewrite, relevance, generate, quality + HITL）LLM API を呼び出す |
 | **エラーリカバリ** | 品質チェック失敗時の再試行ロジックはシステムプロンプトの指示に依存しており、実装上の制限がある |
 | **シングルトン** | `VectorStore`, `ChatService`, `Deep Agent` はいずれもプロセスシングルトンのためテスト間の分離に注意が必要 |
+| **確認ダイアログ未実装** | 「新しい会話」ボタンに確認ダイアログが未実装（誤操作防止） |
+| **visualViewport未対応** | モバイルでのソフトウェアキーボード表示時のレイアウト調整が未実装 |
+
+### P1で完了した項目
+
+| 項目 | 内容 |
+|------|------|
+| ~~**CORS設定**~~ | ~~デフォルトで `localhost:5173` と `localhost:3000` のみ許可~~ → **P1-30 で適正化済み**（メソッド・ヘッダー制限） |
+| ~~**ドキュメント管理 API**~~ | ~~ドキュメントの追加・削除・更新を行う管理用 API エンドポイントの追加~~ → **P1-32 で実装済み**（GET/POST/DELETE） |
+| ~~**埋め込みモデルのカスタマイズ**~~ | ~~`VectorStore` の埋め込み関数を変更~~ → **P1-11 で実装済み**（multilingual-e5-base） |
+| ~~**ハイブリッド検索**~~ | ~~BM25 + ベクトル検索の統合~~ → **P1-16 で実装済み**（RRF統合） |
+| ~~**セキュリティヘッダー**~~ | ~~X-Frame-Options等のセキュリティヘッダー追加~~ → **P1-29 で実装済み** |
+| ~~**APIキー保護**~~ | ~~設定ファイルでのAPIキー平文保存~~ → **P1-31 でSecretStr化済み** |
+| ~~**フィードバック機能**~~ | ~~回答へのフィードバック収集~~ → **P1-23 で実装済み**（thumbs up/down） |
+| ~~**ナレッジギャップ検出**~~ | ~~回答できなかった質問の可視化~~ → **P1-33 で実装済み** |
 
 ### 拡張ポイント
 
@@ -1277,11 +1588,12 @@ server: {
 |------|------|
 | **永続化チェックポインタ** | `MemorySaver` を `PostgresSaver` / `RedisSaver` に置き換えることで会話履歴の永続化とスケールアウトが可能 |
 | **Redis キュー** | `asyncio.Queue` を Redis Pub/Sub または Redis Streams に置き換えることで水平スケーリングに対応 |
-| **埋め込みモデルのカスタマイズ** | `VectorStore` の埋め込み関数を `langchain_openai.OpenAIEmbeddings` に変更することで検索精度を向上 |
-| **ドキュメント管理 API** | ドキュメントの追加・削除・更新を行う管理用 API エンドポイントの追加 |
+| **ドキュメント更新API** | `PUT /api/admin/knowledge/{doc_id}` の実装 |
 | **ユーザー管理** | JWT 認証は実装済みだが、ユーザー登録・ロール管理・トークンリフレッシュは未実装 |
 | **会話履歴の永続化** | データベースへの会話履歴の保存と検索 |
 | **マルチモーダル対応** | 画像・PDF のアップロードとナレッジベースへの取り込み |
 | **ストリーミング検索** | RAG 検索の段階的なストリーミング配信によるレイテンシ改善 |
 | **エージェントグラフの可視化** | LangGraph Studio との連携によるデバッグ・モニタリング |
 | ~~**レート制限**~~ | ~~API エンドポイントへのレート制限とスロットリング機能の追加~~ → **P0-02 で実装済み**（slowapi） |
+| ~~**埋め込みモデルのカスタマイズ**~~ | ~~`VectorStore` の埋め込み関数を変更~~ → **P1-11 で実装済み** |
+| ~~**ドキュメント管理 API**~~ | ~~ドキュメントの追加・削除・更新~~ → **P1-32 で実装済み** |
