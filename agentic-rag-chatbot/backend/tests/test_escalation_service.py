@@ -176,6 +176,22 @@ class TestEscalationServiceGenerateSummary:
 
         assert summary == "（会話履歴なし）"
 
+    def test_generate_summary_llm_failure_logs_error(
+        self, service: EscalationService, sample_conversation_history: list[dict]
+    ):
+        """LLM失敗時にerrorレベルでexc_info=Trueでログ出力される"""
+        with patch("app.agents.llm_factory.get_llm") as mock_get_llm:
+            mock_get_llm.side_effect = Exception("LLM connection error")
+
+            with patch("app.services.escalation_service.logger") as mock_logger:
+                summary = service._generate_summary(sample_conversation_history)
+
+                assert summary == "（サマリー生成エラー）"
+                # errorレベルで、exc_info=Trueでログ出力されることを確認
+                mock_logger.error.assert_called_once()
+                call_args = mock_logger.error.call_args
+                assert call_args[1].get("exc_info") is True
+
 
 class TestEscalationServiceSingleton:
     """シングルトンパターンのテスト"""

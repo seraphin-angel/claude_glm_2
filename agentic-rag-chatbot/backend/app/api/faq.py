@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from app.auth.jwt_handler import verify_token
 from pydantic import BaseModel
 
 from app.services.faq_service import FAQService
@@ -31,6 +33,7 @@ class APIResponse(BaseModel):
 async def get_faq_suggestions(
     page_url: str = Query(default="", description="現在のページURL"),
     limit: int = Query(default=3, ge=1, le=10, description="取得するFAQ数"),
+    _token: dict = Depends(verify_token),
 ) -> dict[str, Any]:
     """
     ページURLに基づくFAQ推薦を取得
@@ -50,6 +53,7 @@ async def get_faq_suggestions(
 async def get_top_faqs(
     limit: int = Query(default=5, ge=1, le=20, description="取得するFAQ数"),
     since_days: int = Query(default=7, ge=1, le=30, description="集計期間（日数）"),
+    _token: dict = Depends(verify_token),
 ) -> dict[str, Any]:
     """
     トップ質問を取得（閲覧数順）
@@ -69,6 +73,7 @@ async def get_top_faqs(
 async def search_faqs(
     q: str = Query(default="", description="検索クエリ"),
     limit: int = Query(default=5, ge=1, le=20, description="取得するFAQ数"),
+    _token: dict = Depends(verify_token),
 ) -> dict[str, Any]:
     """
     FAQをキーワードで検索
@@ -88,7 +93,7 @@ async def search_faqs(
 
 
 @router.get("/categories")
-async def get_categories() -> dict[str, Any]:
+async def get_categories(_token: dict = Depends(verify_token)) -> dict[str, Any]:
     """
     すべてのカテゴリを取得
 
@@ -100,7 +105,7 @@ async def get_categories() -> dict[str, Any]:
 
 
 @router.post("/click")
-async def record_faq_click(request: FAQClickRequest) -> dict[str, Any]:
+async def record_faq_click(request: FAQClickRequest, _token: dict = Depends(verify_token)) -> dict[str, Any]:
     """
     FAQ クリックを記録（閲覧数を増やす）
 

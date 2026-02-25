@@ -1,4 +1,5 @@
 import type { ChatEvent } from '@/types/message'
+import { logger } from '@/lib/logger'
 
 export type SSEEventHandler = (event: ChatEvent) => void
 
@@ -27,27 +28,57 @@ export function createSSEConnection(
     currentEventSource = eventSource
 
     eventSource.onmessage = (event: MessageEvent) => {
-      try {
-        const data: ChatEvent = JSON.parse(event.data as string)
-        retryCount = 0
-        onEvent(data)
+      const rawData = event.data as string
+      if (!rawData || rawData.trim() === '') return
 
-        if (data.type === 'done' || data.type === 'error') {
-          eventSource.close()
-        }
-      } catch {
-        // パースエラーは無視（ping 等）
+      let data: ChatEvent
+      try {
+        data = JSON.parse(rawData)
+      } catch (parseError) {
+        // エラー詳細をログ出力
+        logger.error('SSE', {
+          message: 'JSON parse error',
+          rawData: rawData.substring(0, 200),
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+          threadId,
+        })
+        if (onError) onError(new Event('parse_error'))
+        return
+      }
+
+      retryCount = 0
+      onEvent(data)
+
+      if (data.type === 'done' || data.type === 'error') {
+        eventSource.close()
       }
     }
 
     eventSource.onerror = () => {
+      // エラー詳細をログ出力
+      logger.error('SSE', {
+        message: 'Connection error',
+        readyState: eventSource.readyState,
+        threadId,
+        retryCount,
+        url,
+      })
+
       eventSource.close()
       if (closed) return
 
       if (retryCount < MAX_RETRIES) {
         retryCount++
         const delay = BASE_DELAY_MS * Math.pow(2, retryCount - 1)
-        if (onRetry) onRetry(retryCount)
+        if (onRetry) {
+          onRetry(retryCount)
+        } else {
+          // デフォルトでログ出力
+          logger.warn('SSE', {
+            message: `Retrying connection (${retryCount}/${MAX_RETRIES})`,
+            threadId,
+          })
+        }
         setTimeout(connect, delay)
       } else {
         if (onError) {

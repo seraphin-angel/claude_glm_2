@@ -96,83 +96,97 @@ class ChatService:
         )
         self._tasks[thread_id] = task
 
-    async def _run_agent(self, thread_id: str, message: str, queue: asyncio.Queue) -> None:
-        """エージェントを実行しイベントをキューに送出"""
-        agent = get_agent()
-        config = {"configurable": {"thread_id": thread_id}}
+    async def _process_event(
+        self,
+        event: dict,
+        queue: asyncio.Queue,
+        thread_id: str,
+        full_response: list[str],
+        step_count: list[int],
+    ) -> bool:
+        """イベントを処理する。MAX_STEPS超過時はTrueを返す。"""
+        kind = event.get("event", "")
 
+        if kind == "on_chat_model_stream":
+            chunk = event.get("data", {}).get("chunk")
+            if chunk and hasattr(chunk, "content") and chunk.content:
+                if not chunk.tool_call_chunks:
+                    full_response[0] += chunk.content
+                    await queue.put(StreamEvent(
+                        type=StreamEventType.TOKEN,
+                        content=chunk.content,
+                    ))
+
+        elif kind == "on_tool_start":
+            tool_name = event.get("name", "")
+            await queue.put(StreamEvent(
+                type=StreamEventType.TOOL_START,
+                tool_name=tool_name,
+            ))
+
+        elif kind == "on_tool_end":
+            tool_name = event.get("name", "")
+            tool_output = event.get("data", {}).get("output")
+
+            if tool_name == "search_knowledge" and tool_output:
+                source_docs = _extract_source_documents(tool_output)
+                if source_docs:
+                    await queue.put(StreamEvent(
+                        type=StreamEventType.SOURCE,
+                        documents=source_docs,
+                    ))
+
+            if tool_name == "check_relevance" and tool_output:
+                quality_data = _extract_quality_score(tool_output)
+                if quality_data:
+                    await queue.put(StreamEvent(
+                        type=StreamEventType.QUALITY,
+                        is_relevant=quality_data["is_relevant"],
+                        confidence=quality_data["confidence"],
+                        reasoning=quality_data["reasoning"],
+                    ))
+
+            await queue.put(StreamEvent(
+                type=StreamEventType.TOOL_END,
+                tool_name=tool_name,
+            ))
+            step_count[0] += 1
+            if step_count[0] >= self.MAX_STEPS:
+                logger.warning(
+                    "Agent exceeded max steps (%d) for thread %s",
+                    self.MAX_STEPS,
+                    thread_id,
+                )
+                await queue.put(StreamEvent(
+                    type=StreamEventType.ERROR,
+                    content="エージェントの処理ステップ数が上限に達しました。質問を変えて再度お試しください。",
+                ))
+                return True
+
+        return False
+
+    async def _stream_and_collect(
+        self,
+        event_stream,
+        queue: asyncio.Queue,
+        thread_id: str,
+        config: dict,
+    ) -> None:
+        """イベントストリームを処理し、完了・エラーイベントを送出する共通ロジック。"""
         try:
-            full_response = ""
-            step_count = 0
-            async for event in agent.astream_events(
-                {"messages": [("user", message)]},
-                config=config,
-                version="v2",
-            ):
-                kind = event.get("event", "")
+            full_response = [""]
+            step_count = [0]
+            async for event in event_stream:
+                should_break = await self._process_event(
+                    event, queue, thread_id, full_response, step_count,
+                )
+                if should_break:
+                    break
 
-                if kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        if not chunk.tool_call_chunks:
-                            full_response += chunk.content
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.TOKEN,
-                                content=chunk.content,
-                            ))
-
-                elif kind == "on_tool_start":
-                    tool_name = event.get("name", "")
-                    await queue.put(StreamEvent(
-                        type=StreamEventType.TOOL_START,
-                        tool_name=tool_name,
-                    ))
-
-                elif kind == "on_tool_end":
-                    tool_name = event.get("name", "")
-                    tool_output = event.get("data", {}).get("output")
-
-                    # 参照元ドキュメントの送信 (search_knowledge)
-                    if tool_name == "search_knowledge" and tool_output:
-                        source_docs = _extract_source_documents(tool_output)
-                        if source_docs:
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.SOURCE,
-                                documents=source_docs,
-                            ))
-
-                    # 品質スコアの送信 (check_relevance)
-                    if tool_name == "check_relevance" and tool_output:
-                        quality_data = _extract_quality_score(tool_output)
-                        if quality_data:
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.QUALITY,
-                                is_relevant=quality_data["is_relevant"],
-                                confidence=quality_data["confidence"],
-                                reasoning=quality_data["reasoning"],
-                            ))
-
-                    await queue.put(StreamEvent(
-                        type=StreamEventType.TOOL_END,
-                        tool_name=tool_name,
-                    ))
-                    step_count += 1
-                    if step_count >= self.MAX_STEPS:
-                        logger.warning(
-                            "Agent exceeded max steps (%d) for thread %s",
-                            self.MAX_STEPS,
-                            thread_id,
-                        )
-                        await queue.put(StreamEvent(
-                            type=StreamEventType.ERROR,
-                            content="エージェントの処理ステップ数が上限に達しました。質問を変えて再度お試しください。",
-                        ))
-                        break
-
-            if full_response:
+            if full_response[0]:
                 await queue.put(StreamEvent(
                     type=StreamEventType.MESSAGE_COMPLETE,
-                    content=full_response,
+                    content=full_response[0],
                 ))
 
         except Exception as e:
@@ -193,6 +207,17 @@ class ChatService:
                 ))
         finally:
             await queue.put(StreamEvent(type=StreamEventType.DONE))
+
+    async def _run_agent(self, thread_id: str, message: str, queue: asyncio.Queue) -> None:
+        """エージェントを実行しイベントをキューに送出"""
+        agent = get_agent()
+        config = {"configurable": {"thread_id": thread_id}}
+        event_stream = agent.astream_events(
+            {"messages": [("user", message)]},
+            config=config,
+            version="v2",
+        )
+        await self._stream_and_collect(event_stream, queue, thread_id, config)
 
     async def _resume_agent(
         self,
@@ -203,99 +228,12 @@ class ChatService:
     ) -> None:
         """HITL中断からエージェントを再開"""
         agent = get_agent()
-
-        try:
-            full_response = ""
-            step_count = 0
-            async for event in agent.astream_events(
-                Command(resume=response),
-                config=config,
-                version="v2",
-            ):
-                kind = event.get("event", "")
-
-                if kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        if not chunk.tool_call_chunks:
-                            full_response += chunk.content
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.TOKEN,
-                                content=chunk.content,
-                            ))
-
-                elif kind == "on_tool_start":
-                    tool_name = event.get("name", "")
-                    await queue.put(StreamEvent(
-                        type=StreamEventType.TOOL_START,
-                        tool_name=tool_name,
-                    ))
-
-                elif kind == "on_tool_end":
-                    tool_name = event.get("name", "")
-                    tool_output = event.get("data", {}).get("output")
-
-                    # 参照元ドキュメントの送信 (search_knowledge)
-                    if tool_name == "search_knowledge" and tool_output:
-                        source_docs = _extract_source_documents(tool_output)
-                        if source_docs:
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.SOURCE,
-                                documents=source_docs,
-                            ))
-
-                    # 品質スコアの送信 (check_relevance)
-                    if tool_name == "check_relevance" and tool_output:
-                        quality_data = _extract_quality_score(tool_output)
-                        if quality_data:
-                            await queue.put(StreamEvent(
-                                type=StreamEventType.QUALITY,
-                                is_relevant=quality_data["is_relevant"],
-                                confidence=quality_data["confidence"],
-                                reasoning=quality_data["reasoning"],
-                            ))
-
-                    await queue.put(StreamEvent(
-                        type=StreamEventType.TOOL_END,
-                        tool_name=tool_name,
-                    ))
-                    step_count += 1
-                    if step_count >= self.MAX_STEPS:
-                        logger.warning(
-                            "Agent exceeded max steps (%d) for thread %s",
-                            self.MAX_STEPS,
-                            thread_id,
-                        )
-                        await queue.put(StreamEvent(
-                            type=StreamEventType.ERROR,
-                            content="エージェントの処理ステップ数が上限に達しました。質問を変えて再度お試しください。",
-                        ))
-                        break
-
-            if full_response:
-                await queue.put(StreamEvent(
-                    type=StreamEventType.MESSAGE_COMPLETE,
-                    content=full_response,
-                ))
-
-        except Exception as e:
-            error_str = str(e)
-            error_type = type(e).__name__
-            if "GraphInterrupt" in error_type or "interrupt" in error_str.lower():
-                await self._handle_interrupt(thread_id, queue, config)
-            else:
-                logger.error("Agent execution error", exc_info=True)
-                debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
-                if debug_mode:
-                    error_message = f"エラーが発生しました: {error_str}"
-                else:
-                    error_message = "エラーが発生しました。しばらくしてから再度お試しください。"
-                await queue.put(StreamEvent(
-                    type=StreamEventType.ERROR,
-                    content=error_message,
-                ))
-        finally:
-            await queue.put(StreamEvent(type=StreamEventType.DONE))
+        event_stream = agent.astream_events(
+            Command(resume=response),
+            config=config,
+            version="v2",
+        )
+        await self._stream_and_collect(event_stream, queue, thread_id, config)
 
     async def _handle_interrupt(
         self,

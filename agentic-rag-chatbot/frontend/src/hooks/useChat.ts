@@ -3,6 +3,7 @@ import type { Message, ChatStatus, HITLRequest, ChatEvent, SourceDocument, Quali
 import { sendMessage, resumeChat } from '@/lib/api'
 import type { SSEConnection } from '@/lib/sse'
 import { createSSEConnection, closeSSEConnection } from '@/lib/sse'
+import { logger } from '@/lib/logger'
 
 interface ToolHistoryEntry {
   readonly name: string
@@ -88,12 +89,14 @@ export function useChat(): UseChatReturn {
         break
 
       case 'hitl_request':
-        // SSE切断し、HITL UI を表示
+        if (!event.request_id || !event.question) {
+          break
+        }
         closeSSEConnection(eventSourceRef.current)
         eventSourceRef.current = null
         setCurrentHITL({
-          request_id: event.request_id!,
-          question: event.question!,
+          request_id: event.request_id,
+          question: event.question,
           options: event.options ?? null,
           input_type: (event.input_type as 'buttons' | 'text') ?? 'text',
         })
@@ -185,9 +188,34 @@ export function useChat(): UseChatReturn {
       if (response.success && response.data) {
         threadIdRef.current = response.data.thread_id
         connectSSE(response.data.thread_id)
+      } else {
+        logger.error('useChat', {
+          message: 'API returned unsuccessful response',
+          error: response.error,
+          success: response.success,
+          threadId: threadIdRef.current,
+        })
+        setError(response.error ?? 'メッセージの送信に失敗しました')
+        updateStatus('error')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'メッセージの送信に失敗しました')
+      let errorMessage: string
+      if (err instanceof Error) {
+        errorMessage = err.message
+        logger.error('useChat', {
+          message: 'Send message error',
+          error: err.message,
+          stack: err.stack,
+          threadId: threadIdRef.current,
+        })
+      } else if (typeof err === 'string') {
+        errorMessage = err
+        logger.error('useChat', { message: 'Unexpected error type', error: err })
+      } else {
+        errorMessage = '予期しないエラーが発生しました'
+        logger.error('useChat', { message: 'Unexpected error type', error: String(err) })
+      }
+      setError(errorMessage)
       updateStatus('error')
     }
   }, [connectSSE, updateStatus])
@@ -209,13 +237,25 @@ export function useChat(): UseChatReturn {
 
   const retryLastMessage = useCallback(async () => {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
-    if (!lastUserMessage) return
+    if (!lastUserMessage) {
+      logger.warn('useChat', { message: 'No user message found to retry' })
+      setError('再試行するメッセージが見つかりません')
+      return
+    }
     setError(null)
     await send(lastUserMessage.content)
   }, [messages, send])
 
   const respondToHITL = useCallback(async (response: string) => {
-    if (!currentHITL || !threadIdRef.current) return
+    if (!currentHITL || !threadIdRef.current) {
+      logger.error('useChat', {
+        message: 'respondToHITL called with invalid state',
+        hasHITL: !!currentHITL,
+        hasThreadId: !!threadIdRef.current,
+      })
+      setError('チャットセッションが無効です。ページを再読み込みしてください。')
+      return
+    }
 
     const requestId = currentHITL.request_id
     const savedThreadId = threadIdRef.current
@@ -235,9 +275,32 @@ export function useChat(): UseChatReturn {
       const result = await resumeChat(savedThreadId, requestId, response)
       if (result.success && result.data) {
         connectSSE(result.data.thread_id)
+      } else {
+        logger.error('useChat', {
+          message: 'Resume API returned unsuccessful response',
+          error: result.error,
+          threadId: savedThreadId,
+        })
+        setError(result.error ?? '再開に失敗しました')
+        updateStatus('error')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '再開に失敗しました')
+      let errorMessage: string
+      if (err instanceof Error) {
+        errorMessage = err.message
+        logger.error('useChat', {
+          message: 'RespondToHITL error',
+          error: err.message,
+          stack: err.stack,
+          threadId: savedThreadId,
+        })
+      } else if (typeof err === 'string') {
+        errorMessage = err
+      } else {
+        errorMessage = '予期しないエラーが発生しました'
+        logger.error('useChat', { message: 'RespondToHITL unexpected error type', error: String(err) })
+      }
+      setError(errorMessage)
       updateStatus('error')
     }
   }, [currentHITL, connectSSE, updateStatus])

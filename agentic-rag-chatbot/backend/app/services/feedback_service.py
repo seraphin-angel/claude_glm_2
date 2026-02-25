@@ -72,8 +72,11 @@ class FeedbackService:
                 self._feedbacks = json.loads(
                     self._persist_path.read_text(encoding="utf-8")
                 )
-        except Exception:
-            logger.warning("Failed to load feedback file")
+        except Exception as e:
+            logger.error(
+                "Failed to load feedback file",
+                exc_info=True,
+            )
             self._feedbacks = []
 
     def _save(self):
@@ -83,5 +86,8 @@ class FeedbackService:
                 json.dumps(self._feedbacks, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except Exception:
-            logger.warning("Failed to save feedback file")
+        except Exception as e:
+            logger.error(
+                "Failed to save feedback file",
+                exc_info=True,
+            )

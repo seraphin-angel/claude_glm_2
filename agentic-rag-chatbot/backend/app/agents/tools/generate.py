@@ -1,8 +1,12 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 
 from app.agents.llm_factory import get_llm
 from app.agents.prompts import CATEGORY_PROMPTS
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -49,5 +53,12 @@ def generate_answer(query: str, relevant_documents: list[dict], category: str = 
         ("human", "質問カテゴリ: {category}\nユーザーの質問: {query}\n\n参考情報:\n{context}"),
     ])
 
-    response = (prompt | llm).invoke({"query": query, "category": category, "context": context})
-    return response.content.strip()
+    try:
+        response = (prompt | llm).invoke({"query": query, "category": category, "context": context})
+        return response.content.strip()
+    except Exception as e:
+        logger.error(
+            "generate_answer LLM call failed",
+            exc_info=True,
+        )
+        raise

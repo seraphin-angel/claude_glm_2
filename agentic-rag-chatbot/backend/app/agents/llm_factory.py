@@ -165,7 +165,10 @@ def log_llm_call(
                 output_tokens=output_tokens,
             )
         except Exception as e:
-            logger.warning(f"Failed to record cost: {e}")
+            logger.warning(
+                "Failed to record cost",
+                exc_info=True,
+            )
 
 
 def create_tracked_llm(

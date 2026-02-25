@@ -228,3 +228,24 @@ class TestPromptServicePersistence:
             assert instance1 is instance2
 
         PromptService.reset_instance()
+
+
+class TestPromptServiceLoadError:
+    """_load メソッドのエラーログテスト"""
+
+    def test_load_failure_logs_error_with_exc_info(self, tmp_path):
+        """_load失敗時にerrorレベルでexc_info=Trueでログ出力される"""
+        corrupted_file = tmp_path / "prompts.json"
+        corrupted_file.write_text("invalid json {{{", encoding="utf-8")
+
+        PromptService.reset_instance()
+        with patch.object(PromptService, "_get_default_data_path", return_value=corrupted_file):
+            with patch("app.services.prompt_service.logger") as mock_logger:
+                service = PromptService()
+
+                # errorレベルで、exc_info=Trueでログ出力されることを確認
+                mock_logger.error.assert_called_once()
+                call_args = mock_logger.error.call_args
+                assert call_args[1].get("exc_info") is True
+
+        PromptService.reset_instance()

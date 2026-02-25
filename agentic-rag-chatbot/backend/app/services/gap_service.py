@@ -59,8 +59,11 @@ class KnowledgeGapService:
         try:
             if self._persist_path.exists():
                 self._gaps = json.loads(self._persist_path.read_text(encoding="utf-8"))
-        except Exception:
-            logger.warning("Failed to load knowledge gaps file")
+        except Exception as e:
+            logger.error(
+                "Failed to load knowledge gaps file",
+                exc_info=True,
+            )
             self._gaps = []
 
     def _save(self):
@@ -70,5 +73,8 @@ class KnowledgeGapService:
                 json.dumps(self._gaps, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except Exception:
-            logger.warning("Failed to save knowledge gaps file")
+        except Exception as e:
+            logger.error(
+                "Failed to save knowledge gaps file",
+                exc_info=True,
+            )

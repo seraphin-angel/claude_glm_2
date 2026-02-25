@@ -83,8 +83,10 @@ async def get_agent():
                 _agent = build_agent(checkpointer=_checkpointer_context)
                 logger.info("PostgresSaver initialized successfully")
             except Exception as e:
-                logger.warning(
-                    f"Failed to initialize PostgresSaver, falling back to MemorySaver: {e}"
+                logger.error(
+                    "Failed to initialize PostgresSaver, falling back to MemorySaver. "
+                    "Chat session history will NOT persist across server restarts.",
+                    exc_info=True,
                 )
                 _checkpointer = MemorySaver()
                 _checkpointer_context = None
@@ -120,8 +122,11 @@ def reset_agent():
             else:
                 # イベントループが実行中でない場合は同期的に実行
                 loop.run_until_complete(_checkpointer_context.__aexit__(None, None, None))
-        except Exception:
-            pass  # クリーンアップエラーは無視
+        except Exception as e:
+            logger.warning(
+                "Failed to cleanup checkpointer context",
+                exc_info=True,
+            )
     _agent = None
     _checkpointer = None
     _checkpointer_context = None

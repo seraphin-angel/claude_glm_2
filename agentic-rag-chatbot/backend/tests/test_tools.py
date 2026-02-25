@@ -374,7 +374,7 @@ class TestCheckRelevance:
         # 平均スコア = (0.75 + 0.65) / 2 = 0.70 > 0.5 → True
         assert result["is_relevant"] is True
         assert result["score"] == pytest.approx(0.70)
-        assert "スコアベース" in result["reason"]
+        assert "簡易判定" in result["reason"]
 
     def test_relevance_exception_score_based_fallback_low(self):
         """StructuredOutput が Exception を発生させた場合に平均スコアが低いと is_relevant=False になることを確認"""
@@ -497,6 +497,27 @@ class TestCheckRelevance:
         # 平均スコア = (0.80 + 0.60) / 2 = 0.70 < 0.85 → LLM呼び出し発生
         mock_llm.with_structured_output.assert_called_once()
         assert result["score"] == 0.75
+
+    def test_relevance_fallback_message_includes_accuracy_warning(self):
+        """フォールバック時に精度低下の可能性を通知するメッセージが含まれることを確認"""
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.side_effect = Exception("parse error")
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        search_results = [
+            {"content": "関連ドキュメント", "relevance_score": 0.75},
+        ]
+
+        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm):
+            result = check_relevance.invoke({
+                "query": "テスト質問",
+                "search_results": search_results,
+            })
+
+        # フォールバックメッセージに精度低下の可能性を通知する内容が含まれる
+        assert "精度" in result["reason"] or "低下" in result["reason"] or "ご注意" in result["reason"]
 
 
 # ===========================================================================

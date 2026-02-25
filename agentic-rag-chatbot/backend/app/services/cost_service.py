@@ -241,7 +241,10 @@ class CostService:
                 data = json.loads(self._persist_path.read_text(encoding="utf-8"))
                 self._usages = [TokenUsage(**item) for item in data]
         except Exception as e:
-            logger.warning(f"Failed to load token usage file: {e}")
+            logger.error(
+                "Failed to load token usage file",
+                exc_info=True,
+            )
             self._usages = []
 
     def _save(self):
@@ -254,4 +257,7 @@ class CostService:
                 encoding="utf-8",
             )
         except Exception as e:
-            logger.warning(f"Failed to save token usage file: {e}")
+            logger.error(
+                "Failed to save token usage file",
+                exc_info=True,
+            )

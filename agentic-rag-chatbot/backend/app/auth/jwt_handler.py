@@ -17,7 +17,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expires_delta or timedelta(minutes=settings.jwt_expire_minutes)
     )
     to_encode["exp"] = expire
-    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(to_encode, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm)
 
 
 async def verify_token(
@@ -28,7 +28,7 @@ async def verify_token(
     try:
         payload = jwt.decode(
             credentials.credentials,
-            settings.jwt_secret_key,
+            settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
         )
         return payload

@@ -261,7 +261,10 @@ class PromptService:
                 )
                 self._data = {"prompts": {}}
         except Exception as e:
-            logger.warning(f"Failed to load prompts file: {e}")
+            logger.error(
+                "Failed to load prompts file",
+                exc_info=True,
+            )
             self._data = {"prompts": {}}
 
     def _save(self) -> None:
@@ -273,4 +276,7 @@ class PromptService:
                 encoding="utf-8",
             )
         except Exception as e:
-            logger.warning(f"Failed to save prompts file: {e}")
+            logger.error(
+                "Failed to save prompts file",
+                exc_info=True,
+            )

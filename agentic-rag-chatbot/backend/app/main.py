@@ -42,7 +42,10 @@ async def lifespan(app: FastAPI):
         bm25.build_index_from_vector_store(store)
         logger.info("BM25 index built successfully")
     except Exception as e:
-        logger.warning(f"Failed to load documents: {e}")
+        logger.error(
+            "Failed to load documents. Knowledge base will be empty.",
+            exc_info=True,
+        )
 
     yield
 

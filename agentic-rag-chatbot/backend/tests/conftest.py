@@ -1,8 +1,14 @@
+import os
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 
-from app.auth.jwt_handler import create_access_token
-from app.main import app
+# テスト環境では安全なデフォルト値を設定する（モジュールインポート前に設定が必要）
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-pytest-only")
+os.environ.setdefault("DEBUG_MODE", "true")
+
+from app.auth.jwt_handler import create_access_token  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture

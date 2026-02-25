@@ -142,7 +142,10 @@ class EscalationService:
             return response.content.strip()
 
         except Exception as e:
-            logger.warning(f"Failed to generate summary: {e}")
+            logger.error(
+                "Failed to generate summary for escalation ticket",
+                exc_info=True,
+            )
             return "（サマリー生成エラー）"
 
     def _load(self):
@@ -153,7 +156,10 @@ class EscalationService:
                     self._persist_path.read_text(encoding="utf-8")
                 )
         except Exception as e:
-            logger.warning(f"Failed to load escalations file: {e}")
+            logger.error(
+                "Failed to load escalations file",
+                exc_info=True,
+            )
             self._tickets = []
 
     def _save(self):
@@ -165,4 +171,7 @@ class EscalationService:
                 encoding="utf-8",
             )
         except Exception as e:
-            logger.warning(f"Failed to save escalations file: {e}")
+            logger.error(
+                "Failed to save escalations file",
+                exc_info=True,
+            )

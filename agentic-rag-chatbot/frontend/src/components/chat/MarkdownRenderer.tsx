@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeSanitize from 'rehype-sanitize'
 
 interface MarkdownRendererProps {
   readonly content: string
@@ -12,7 +13,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
       prose-headings:my-2 prose-pre:my-2 prose-code:text-xs
       prose-a:text-blue-600 dark:prose-a:text-blue-400
       break-words">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+      >
         {content}
       </ReactMarkdown>
     </div>
