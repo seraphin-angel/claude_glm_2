@@ -1,0 +1,112 @@
+{
+  "faqs": [
+    {
+      "id": "faq-001",
+      "question": "パスワードを忘れた場合はどうすればいいですか？",
+      "answer": "ログインページの「パスワードを忘れた」リンクをクリックすると、登録メールアドレスにパスワードリセットの案内が送信されます。",
+      "keywords": ["パスワード", "ログイン", "忘れた", "リセット"],
+      "page_patterns": ["/login", "/account", "/auth"],
+      "category": "アカウント",
+      "view_count": 0
+    },
+    {
+      "id": "faq-002",
+      "question": "アカウントの設定を変更するにはどうすればいいですか？",
+      "answer": "画面右上のアカウントアイコンをクリックし、「設定」から各種設定を変更できます。",
+      "keywords": ["アカウント", "設定", "変更", "プロフィール"],
+      "page_patterns": ["/settings", "/account", "/profile"],
+      "category": "アカウント",
+      "view_count": 0
+    },
+    {
+      "id": "faq-003",
+      "question": "データをエクスポートする方法は？",
+      "answer": "設定ページの「データ管理」セクションから「エクスポート」ボタンをクリックしてください。JSONまたはCSV形式でダウンロードできます。",
+      "keywords": ["エクスポート", "データ", "ダウンロード", "出力"],
+      "page_patterns": ["/settings", "/data", "/export"],
+      "category": "データ管理",
+      "view_count": 0
+    },
+    {
+      "id": "faq-004",
+      "question": "チャット履歴は保存されますか？",
+      "answer": "はい、すべてのチャット履歴は自動的に保存されます。サイドバーの履歴一覧から過去の会話を確認できます。",
+      "keywords": ["履歴", "保存", "チャット", "会話"],
+      "page_patterns": ["/chat", "/history"],
+      "category": "チャット",
+      "view_count": 0
+    },
+    {
+      "id": "faq-005",
+      "question": "データを削除するにはどうすればいいですか？",
+      "answer": "設定ページの「データ管理」から削除したい項目を選択して削除できます。全データの削除はアカウント削除機能をご利用ください。",
+      "keywords": ["削除", "データ", "消す", "リセット"],
+      "page_patterns": ["/settings", "/data", "/privacy"],
+      "category": "データ管理",
+      "view_count": 0
+    },
+    {
+      "id": "faq-006",
+      "question": "複数の言語に対応していますか？",
+      "answer": "はい、日本語と英語に対応しています。設定ページから言語を切り替えられます。",
+      "keywords": ["言語", "日本語", "英語", "多言語"],
+      "page_patterns": ["/settings", "/language"],
+      "category": "設定",
+      "view_count": 0
+    },
+    {
+      "id": "faq-007",
+      "question": "AIの回答が遅い場合はどうすればいいですか？",
+      "answer": "ネットワーク接続を確認してください。問題が続く場合は、ページを再読み込みするか、しばらく時間をおいてから再試行してください。",
+      "keywords": ["遅い", "重い", "回答", "エラー", "タイムアウト"],
+      "page_patterns": ["/chat", "/help"],
+      "category": "トラブルシューティング",
+      "view_count": 0
+    },
+    {
+      "id": "faq-008",
+      "question": "APIキーを設定するにはどうすればいいですか？",
+      "answer": "管理者設定の「API設定」セクションからAPIキーを登録できます。APIキーは安全に暗号化されて保存されます。",
+      "keywords": ["API", "キー", "設定", "APIキー"],
+      "page_patterns": ["/admin", "/settings", "/api"],
+      "category": "設定",
+      "view_count": 0
+    },
+    {
+      "id": "faq-009",
+      "question": "通知設定を変更するには？",
+      "answer": "設定ページの「通知」セクションから、メール通知やプッシュ通知のオン/オフを切り替えられます。",
+      "keywords": ["通知", "メール", "プッシュ", "設定"],
+      "page_patterns": ["/settings", "/notifications"],
+      "category": "設定",
+      "view_count": 0
+    },
+    {
+      "id": "faq-010",
+      "question": "アカウントを削除するにはどうすればいいですか？",
+      "answer": "設定ページの最下部にある「アカウント削除」からアカウントを削除できます。この操作は取り消せません。",
+      "keywords": ["アカウント", "削除", "退会", "解約"],
+      "page_patterns": ["/settings", "/account", "/delete"],
+      "category": "アカウント",
+      "view_count": 0
+    },
+    {
+      "id": "faq-011",
+      "question": "チャットで使用できる機能は何ですか？",
+      "answer": "ドキュメント検索、ナレッジベース照会、FAQ回答などが可能です。また、フィードバック機能で回答の品質を改善できます。",
+      "keywords": ["チャット", "機能", "できること", "使い方"],
+      "page_patterns": ["/chat", "/help", "/"],
+      "category": "チャット",
+      "view_count": 0
+    },
+    {
+      "id": "faq-012",
+      "question": "プライバシーポリシーはどこで確認できますか？",
+      "answer": "フッターの「プライバシーポリシー」リンクから確認できます。データの取り扱いについて詳しく記載されています。",
+      "keywords": ["プライバシー", "ポリシー", "個人情報", "データ"],
+      "page_patterns": ["/privacy", "/settings", "/legal"],
+      "category": "その他",
+      "view_count": 0
+    }
+  ]
+}

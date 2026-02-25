@@ -16,10 +16,15 @@ Score the request:
 - Involves writing/editing code? +1
 - Requires running tests or builds? +1
 - Multiple features or multi-step implementation? +1
+- Multiple phases or milestones required? +1
+- 10+ files likely affected? +1
 
 **Score 0-1:** Handle directly (simple fix, single-file edit, quick question)
 **Score 2:** Lightweight delegation — spawn a single Task sub-agent (sonnet, no TeamCreate). Agent executes, reports back.
-**Score 3+:** Full team delegation — TeamCreate + TaskCreate + multiple agents. You plan, agents execute.
+**Score 3-4:** Full team delegation — TeamCreate + TaskCreate + multiple agents. You plan, agents execute.
+**Score 5+:** Hierarchical delegation — CEO spawns a Director (sequential-leader) who manages the entire team. CEO supervises only. See `rules/delegation.md` Tier 4.
+
+> Note: Score is a minimum threshold, not a mandate. If CEO is confident Tier 3 can handle a Score 5 task without context pressure, Tier 3 is acceptable.
 
 ## Allowed Leader Actions
 

@@ -214,7 +214,7 @@ class TestAlphaFallback:
         monkeypatch.setattr(
             retriever,
             "get_settings",
-            lambda: Settings(hybrid_search_alpha=1.0, bm25_top_k=10),
+            lambda: Settings(hybrid_search_alpha=1.0, bm25_top_k=10, reranker_enabled=False),
         )
 
         results = retriever.hybrid_retrieve(query="テスト", n_results=5)
@@ -237,7 +237,7 @@ class TestAlphaFallback:
         monkeypatch.setattr(
             retriever,
             "get_settings",
-            lambda: Settings(hybrid_search_alpha=0.5, bm25_top_k=10),
+            lambda: Settings(hybrid_search_alpha=0.5, bm25_top_k=10, reranker_enabled=False),
         )
 
         results = retriever.hybrid_retrieve(query="エラー", n_results=5)

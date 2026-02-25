@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agents.prompts import CATEGORY_PROMPTS
+from app.agents.prompts import CATEGORY_PROMPTS, ESCALATION_CRITERIA, PRODUCT_SUPPORT_SYSTEM_PROMPT
 
 
 class TestCategoryPrompts:
@@ -239,3 +239,47 @@ class TestGenerateAnswerCategoryPrompt:
         call_args = mock_llm.call_args
         prompt_str = call_args[0][0].to_string()
         assert "参考:" in prompt_str
+
+
+class TestEscalationCriteria:
+    """ESCALATION_CRITERIA 定数および SYSTEM_PROMPT のエスカレーション基準テスト"""
+
+    def test_escalation_criteria_exists(self):
+        """ESCALATION_CRITERIA が存在することを確認"""
+        assert ESCALATION_CRITERIA is not None
+        assert isinstance(ESCALATION_CRITERIA, str)
+        assert len(ESCALATION_CRITERIA.strip()) > 0
+
+    def test_escalation_criteria_mentions_explicit_request(self):
+        """ユーザーが明示的に有人対応を希望した場合の基準が含まれる"""
+        assert "明示的に有人対応" in ESCALATION_CRITERIA
+
+    def test_escalation_criteria_mentions_technical_issues(self):
+        """技術的に解決不可能な問題の基準が含まれる"""
+        assert "技術的に解決不可能" in ESCALATION_CRITERIA
+
+    def test_escalation_criteria_mentions_legal_financial(self):
+        """法的・金銭的な重要事項の基準が含まれる"""
+        assert "法的" in ESCALATION_CRITERIA or "金銭" in ESCALATION_CRITERIA
+
+    def test_escalation_criteria_mentions_repeated_questions(self):
+        """3回以上同じ質問を繰り返している場合の基準が含まれる"""
+        assert "3回" in ESCALATION_CRITERIA
+
+    def test_escalation_criteria_mentions_tool_name(self):
+        """escalate_to_human ツール名が言及されている"""
+        assert "escalate_to_human" in ESCALATION_CRITERIA
+
+    def test_system_prompt_includes_escalation_criteria(self):
+        """システムプロンプトにエスカレーション判断基準が含まれる"""
+        assert "escalate_to_human" in PRODUCT_SUPPORT_SYSTEM_PROMPT
+        assert "エスカレーション" in PRODUCT_SUPPORT_SYSTEM_PROMPT
+
+    def test_system_prompt_mentions_urgency_levels(self):
+        """システムプロンプトに緊急度の記述がある（間接的に）"""
+        # ツールの使用指示があることを確認
+        assert "escalate_to_human" in PRODUCT_SUPPORT_SYSTEM_PROMPT
+
+    def test_escalation_criteria_includes_urgency_levels(self):
+        """エスカレーション基準に緊急度の説明がある"""
+        assert "緊急度" in ESCALATION_CRITERIA or "urgency" in ESCALATION_CRITERIA

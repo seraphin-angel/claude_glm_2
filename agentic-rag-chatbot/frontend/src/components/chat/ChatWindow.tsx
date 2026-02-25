@@ -3,11 +3,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RotateCcw } from 'lucide-react'
 import { useChat } from '@/hooks/useChat'
+import { useWaitTimer } from '@/hooks/useWaitTimer'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 import { HITLWidget } from '@/components/hitl/HITLWidget'
 import { ToolProgress } from './ToolProgress'
 import { ErrorRecovery } from './ErrorRecovery'
+import { WaitNotification } from './WaitNotification'
 
 export function ChatWindow() {
   const {
@@ -21,9 +23,13 @@ export function ChatWindow() {
     respondToHITL,
     resetConversation,
     retryLastMessage,
+    cancelRequest,
   } = useChat()
 
-  const isDisabled = status === 'streaming'
+  const isStreaming = status === 'streaming'
+  const { showWarning, showError } = useWaitTimer(isStreaming)
+
+  const isDisabled = isStreaming
 
   return (
     <Card className="flex flex-col h-full overflow-hidden" role="main" aria-label="チャット">
@@ -34,7 +40,7 @@ export function ChatWindow() {
             variant="ghost"
             size="sm"
             onClick={resetConversation}
-            disabled={status === 'streaming'}
+            disabled={isStreaming}
             className="gap-2 text-muted-foreground hover:text-foreground"
           >
             <RotateCcw className="w-4 h-4" />
@@ -46,11 +52,18 @@ export function ChatWindow() {
       {/* ツール実行履歴 */}
       {toolHistory.length > 0 && <ToolProgress toolHistory={toolHistory} />}
 
+      {/* 長時間待機通知 */}
+      <WaitNotification
+        showWarning={showWarning}
+        showError={showError}
+        onCancel={cancelRequest}
+      />
+
       {/* メッセージ一覧 */}
       <MessageList
         messages={messages}
         streamingContent={streamingContent}
-        isStreaming={status === 'streaming'}
+        isStreaming={isStreaming}
         onSuggestSelect={send}
       />
 

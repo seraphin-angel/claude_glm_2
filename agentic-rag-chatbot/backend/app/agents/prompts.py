@@ -1,4 +1,17 @@
-CATEGORY_PROMPTS = {
+"""プロンプト管理モジュール
+
+動的プロンプト読み込みと後方互換性のあるフォールバックを提供。
+"""
+
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# ============== フォールバック用のハードコードされたプロンプト ==============
+# PromptServiceが利用できない場合やデータファイルがない場合に使用
+
+_FALLBACK_CATEGORY_PROMPTS = {
     "操作方法": """## カテゴリ: 操作方法
 ユーザーは製品の使い方や設定方法について質問しています。
 - 手順は番号付きリストで明確に示してください
@@ -43,7 +56,36 @@ A: 各プランの料金は以下の通りです。
 【参考: contracts.md > 料金プラン】""",
 }
 
-PRODUCT_SUPPORT_SYSTEM_PROMPT = """あなたは製品サポートの AI アシスタントです。
+_FALLBACK_ESCALATION_CRITERIA = """
+## エスカレーション判断基準
+
+以下の場合は `escalate_to_human` ツールを使用して有人サポートにエスカレーションしてください：
+
+1. **ユーザーが明示的に有人対応を希望した場合**
+   - 「オペレーターに代わって」「人間と話したい」などの発言
+
+2. **技術的に解決不可能な問題**
+   - システムバグや障害が疑われる場合
+   - ナレッジベースに解決策が存在しない技術的問題
+   - アカウントの復旧が必要な場合
+
+3. **法的・金銭的な重要事項**
+   - 返金リクエスト
+   - 契約解除・解約手続き
+   - 請求に関する異議申し立て
+   - 法的な責任が伴う判断が必要な場合
+
+4. **ユーザーが同じ質問を3回以上繰り返している場合**
+   - AIでの解決が困難と判断される場合
+
+### エスカレーション時の注意点
+- 必ず `escalate_to_human` ツールを使用し、適切な緊急度（urgency）を設定すること
+- エスカレーションの理由（reason）を明確に記載すること
+- 会話の要約（summary）を簡潔にまとめること
+- エスカレーション後は、ユーザーに担当者からの連絡を待つよう案内すること
+"""
+
+_FALLBACK_SYSTEM_PROMPT = """あなたは製品サポートの AI アシスタントです。
 ユーザーからの質問に対して、正確で丁寧な回答を提供します。
 
 ## あなたの役割
@@ -68,7 +110,27 @@ PRODUCT_SUPPORT_SYSTEM_PROMPT = """あなたは製品サポートの AI アシ�
 8. `check_quality` で生成された回答の品質を確認する
 9. 品質チェックに合格したら回答を返す
 10. 品質チェックに不合格の場合は、検索条件を変更して再試行するか、人間に確認する
-11. `check_quality` 不合格時のリトライは最大2回まで。3回目以降は `ask_human` でユーザーにエスカレーションすること
+11. `check_quality` 不合格時のリトライは最大2回まで。3回目以降は `escalate_to_human` で有人サポートにエスカレーションすること
+
+## エスカレーション判断基準
+
+以下の場合は `escalate_to_human` ツールを使用して有人サポートにエスカレーションしてください：
+
+1. **ユーザーが明示的に有人対応を希望した場合**
+   - 「オペレーターに代わって」「人間と話したい」などの発言
+
+2. **技術的に解決不可能な問題**
+   - システムバグや障害が疑われる場合
+   - ナレッジベースに解決策が存在しない技術的問題
+   - アカウントの復旧が必要な場合
+
+3. **法的・金銭的な重要事項**
+   - 返金リクエスト
+   - 契約解除・解約手続き
+   - 請求に関する異議申し立て
+
+4. **ユーザーが同じ質問を3回以上繰り返している場合**
+   - AIでの解決が困難と判断される場合
 
 ## 重要なルール
 - **必ず**ナレッジベースの検索結果に基づいて回答すること
@@ -77,6 +139,7 @@ PRODUCT_SUPPORT_SYSTEM_PROMPT = """あなたは製品サポートの AI アシ�
 - 製品サポートの範囲外の質問（天気、ニュース等）には対応しないこと
 - 常に丁寧で分かりやすい日本語で回答すること
 - 手順を説明する場合は番号付きリストを使用すること
+- エスカレーションが必要な場合は `escalate_to_human` ツールを使用すること
 
 ## 回答フォーマット
 - 簡潔かつ正確に回答する
@@ -84,3 +147,88 @@ PRODUCT_SUPPORT_SYSTEM_PROMPT = """あなたは製品サポートの AI アシ�
 - 関連する追加情報がある場合は最後に案内する
 - 「ご不明な点がございましたら、お気軽にお問い合わせください。」で締める
 """
+
+# カテゴリ名とプロンプトIDのマッピング
+_CATEGORY_TO_PROMPT_ID = {
+    "操作方法": "category_operation",
+    "障害・トラブル": "category_troubleshooting",
+    "契約・料金": "category_contract",
+}
+
+
+def _get_prompt_service():
+    """PromptServiceを遅延インポートして取得"""
+    try:
+        from app.services.prompt_service import PromptService
+        return PromptService.get_instance()
+    except Exception as e:
+        logger.warning(f"Failed to get PromptService: {e}")
+        return None
+
+
+def get_system_prompt() -> str:
+    """システムプロンプトを取得
+
+    PromptServiceから動的に取得を試み、失敗した場合はフォールバック値を返す。
+
+    Returns:
+        システムプロンプト文字列
+    """
+    service = _get_prompt_service()
+    if service:
+        prompt = service.get_prompt("system")
+        if prompt:
+            return prompt.content
+
+    logger.info("Using fallback system prompt")
+    return _FALLBACK_SYSTEM_PROMPT
+
+
+def get_category_prompt(category: str) -> str:
+    """カテゴリ別プロンプトを取得
+
+    PromptServiceから動的に取得を試み、失敗した場合はフォールバック値を返す。
+
+    Args:
+        category: カテゴリ名（"操作方法", "障害・トラブル", "契約・料金"）
+
+    Returns:
+        カテゴリ別プロンプト文字列
+    """
+    prompt_id = _CATEGORY_TO_PROMPT_ID.get(category)
+
+    service = _get_prompt_service()
+    if service and prompt_id:
+        prompt = service.get_prompt(prompt_id)
+        if prompt:
+            return prompt.content
+
+    # フォールバック
+    logger.info(f"Using fallback prompt for category: {category}")
+    return _FALLBACK_CATEGORY_PROMPTS.get(category, "")
+
+
+def get_escalation_criteria() -> str:
+    """エスカレーション判断基準プロンプトを取得
+
+    PromptServiceから動的に取得を試み、失敗した場合はフォールバック値を返す。
+
+    Returns:
+        エスカレーション判断基準プロンプト文字列
+    """
+    service = _get_prompt_service()
+    if service:
+        prompt = service.get_prompt("escalation_criteria")
+        if prompt:
+            return prompt.content
+
+    logger.info("Using fallback escalation criteria prompt")
+    return _FALLBACK_ESCALATION_CRITERIA
+
+
+# ============== 後方互換性のための定数 ==============
+# 既存のコードがこれらを直接参照している場合に使用
+
+CATEGORY_PROMPTS = _FALLBACK_CATEGORY_PROMPTS
+ESCALATION_CRITERIA = _FALLBACK_ESCALATION_CRITERIA
+PRODUCT_SUPPORT_SYSTEM_PROMPT = _FALLBACK_SYSTEM_PROMPT

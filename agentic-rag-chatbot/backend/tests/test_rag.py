@@ -443,3 +443,82 @@ class TestRetrieveDocuments:
         """ドキュメントが0件の場合は空リストが返ることを確認"""
         results = retrieve_documents("何か検索", n_results=5)
         assert results == []
+
+
+# ---------------------------------------------------------------------------
+# CrossEncoderReranker のテスト
+# ---------------------------------------------------------------------------
+
+
+class TestCrossEncoderReranker:
+    def test_reranker_returns_reranked_results(self):
+        """リランキングが正しく結果を返すことを確認"""
+        from app.rag.retriever import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker.get_instance()
+        query = "パスワードを忘れた場合の対処法"
+        documents = [
+            {"id": "doc1", "content": "パスワードのリセット方法について説明します。", "metadata": {}, "relevance_score": 0.5},
+            {"id": "doc2", "content": "料金プランの変更方法について", "metadata": {}, "relevance_score": 0.4},
+            {"id": "doc3", "content": "ログインパスワードの設定", "metadata": {}, "relevance_score": 0.3},
+        ]
+
+        results = reranker.rerank(query, documents, top_k=2)
+
+        assert len(results) == 2
+        assert "rerank_score" in results[0]
+        assert results[0]["id"] in ["doc1", "doc3"]  # パスワード関連が上位
+
+    def test_reranker_handles_empty_documents(self):
+        """空のドキュメントリストを処理できることを確認"""
+        from app.rag.retriever import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker.get_instance()
+        results = reranker.rerank("テストクエリ", [], top_k=5)
+
+        assert results == []
+
+    def test_reranker_top_k_limits_results(self):
+        """top_k が結果件数を制限することを確認"""
+        from app.rag.retriever import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker.get_instance()
+        query = "テスト"
+        documents = [
+            {"id": f"doc{i}", "content": f"コンテンツ{i}", "metadata": {}, "relevance_score": 0.5}
+            for i in range(10)
+        ]
+
+        results = reranker.rerank(query, documents, top_k=3)
+
+        assert len(results) == 3
+
+    def test_reranker_preserves_document_fields(self):
+        """リランキング結果が元のフィールドを保持することを確認"""
+        from app.rag.retriever import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker.get_instance()
+        query = "ログイン方法"
+        documents = [
+            {"id": "doc1", "content": "ログインの方法", "metadata": {"category": "操作方法"}, "relevance_score": 0.5},
+        ]
+
+        results = reranker.rerank(query, documents, top_k=1)
+
+        assert len(results) == 1
+        assert results[0]["id"] == "doc1"
+        assert results[0]["content"] == "ログインの方法"
+        assert results[0]["metadata"]["category"] == "操作方法"
+        assert "rerank_score" in results[0]
+
+    def test_reranker_singleton_pattern(self):
+        """シングルトンパターンが機能することを確認"""
+        from app.rag.retriever import CrossEncoderReranker
+
+        CrossEncoderReranker.reset_instance()
+        instance1 = CrossEncoderReranker.get_instance()
+        instance2 = CrossEncoderReranker.get_instance()
+
+        assert instance1 is instance2
+
+        CrossEncoderReranker.reset_instance()

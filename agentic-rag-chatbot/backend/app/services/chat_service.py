@@ -6,9 +6,50 @@ import uuid
 from langgraph.types import Command
 
 from app.agents.agent import get_agent
-from app.models.messages import StreamEvent, StreamEventType
+from app.models.messages import SourceDocument, StreamEvent, StreamEventType
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_source_documents(tool_output: dict) -> list[SourceDocument] | None:
+    """search_knowledge の出力から参照元ドキュメントを抽出"""
+    if not isinstance(tool_output, list):
+        return None
+
+    documents = []
+    for doc in tool_output:
+        if not isinstance(doc, dict):
+            continue
+
+        content = doc.get("content", "")
+        metadata = doc.get("metadata", {}) or {}
+        score = doc.get("relevance_score", 0.0)
+
+        snippet = content[:200] + "..." if len(content) > 200 else content
+
+        documents.append(SourceDocument(
+            id=doc.get("id", "unknown"),
+            title=metadata.get("title", "不明"),
+            section=metadata.get("section", ""),
+            score=score,
+            snippet=snippet,
+        ))
+
+    return documents if documents else None
+
+
+def _extract_quality_score(tool_output: dict) -> dict | None:
+    """check_relevance の出力から品質スコアを抽出"""
+    if not isinstance(tool_output, dict):
+        return None
+
+    if "is_relevant" in tool_output and "score" in tool_output:
+        return {
+            "is_relevant": tool_output.get("is_relevant", False),
+            "confidence": tool_output.get("score", 0.0),
+            "reasoning": tool_output.get("reason", ""),
+        }
+    return None
 
 
 class ChatService:
@@ -89,6 +130,28 @@ class ChatService:
 
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "")
+                    tool_output = event.get("data", {}).get("output")
+
+                    # 参照元ドキュメントの送信 (search_knowledge)
+                    if tool_name == "search_knowledge" and tool_output:
+                        source_docs = _extract_source_documents(tool_output)
+                        if source_docs:
+                            await queue.put(StreamEvent(
+                                type=StreamEventType.SOURCE,
+                                documents=source_docs,
+                            ))
+
+                    # 品質スコアの送信 (check_relevance)
+                    if tool_name == "check_relevance" and tool_output:
+                        quality_data = _extract_quality_score(tool_output)
+                        if quality_data:
+                            await queue.put(StreamEvent(
+                                type=StreamEventType.QUALITY,
+                                is_relevant=quality_data["is_relevant"],
+                                confidence=quality_data["confidence"],
+                                reasoning=quality_data["reasoning"],
+                            ))
+
                     await queue.put(StreamEvent(
                         type=StreamEventType.TOOL_END,
                         tool_name=tool_name,
@@ -170,6 +233,28 @@ class ChatService:
 
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "")
+                    tool_output = event.get("data", {}).get("output")
+
+                    # 参照元ドキュメントの送信 (search_knowledge)
+                    if tool_name == "search_knowledge" and tool_output:
+                        source_docs = _extract_source_documents(tool_output)
+                        if source_docs:
+                            await queue.put(StreamEvent(
+                                type=StreamEventType.SOURCE,
+                                documents=source_docs,
+                            ))
+
+                    # 品質スコアの送信 (check_relevance)
+                    if tool_name == "check_relevance" and tool_output:
+                        quality_data = _extract_quality_score(tool_output)
+                        if quality_data:
+                            await queue.put(StreamEvent(
+                                type=StreamEventType.QUALITY,
+                                is_relevant=quality_data["is_relevant"],
+                                confidence=quality_data["confidence"],
+                                reasoning=quality_data["reasoning"],
+                            ))
+
                     await queue.put(StreamEvent(
                         type=StreamEventType.TOOL_END,
                         tool_name=tool_name,

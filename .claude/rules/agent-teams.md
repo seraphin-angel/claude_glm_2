@@ -16,7 +16,8 @@ When creating Agent Teams, always assign models via the `model` parameter:
 
 | Role | subagent_type | model | Rationale |
 |------|--------------|-------|-----------|
-| Team Lead | Main session | **opus** | Deep reasoning for orchestration and decision-making |
+| CEO (Team Lead) | Main session | **opus** | Deep reasoning for orchestration and decision-making |
+| Director (Sub-Leader) | `sequential-leader` | **sonnet** | Mid-level orchestration for Tier 4; carries full implementation context |
 | Implementation Worker | `general-purpose` | **sonnet** | Balanced capability and cost for coding tasks |
 | Code Reviewer | `code-reviewer` | **sonnet** | Sufficient quality for review and testing |
 | Researcher | `Explore` | **haiku** | Lightweight and cost-efficient for read-only tasks |
@@ -68,6 +69,37 @@ Task tool:
   prompt: "認証機能の変更をレビューし、テストを実行してください。ユーザーへの報告・質問・確認は必ず日本語で行うこと。"
 ```
 
+### Spawning a Director (Tier 4 hierarchical delegation)
+````
+Task tool:
+  subagent_type: "sequential-leader"
+  model: "sonnet"
+  team_name: "my-team"
+  prompt: |
+    あなたはこのプロジェクトのDirector（部長）です。以下のプロジェクトを担当してください。
+
+    ## プロジェクト目標
+    [Full project description from CEO]
+
+    ## チーム名
+    my-team
+
+    ## 技術スタック
+    [Tech stack details]
+
+    ## 制約事項
+    [Constraints, deadlines, patterns to follow]
+
+    ## あなたの責務
+    - TaskCreate で全タスクを定義し、依存関係を設定する
+    - Worker/Reviewerエージェントを必要に応じて生成する
+    - 進捗をCEO（リーダー）に定期報告する
+    - コンテキストが不足しそうな場合、即座にCEOへ DIRECTOR HANDOFF SUMMARY を送信して引き継ぎを要請する
+    - DIRECTOR HANDOFF SUMMARYの形式は rules/delegation.md を参照すること
+
+    ユーザーへの報告・質問・確認は必ず日本語で行うこと。
+````
+
 ## Leader Behavior in Teams
 
 When operating as the team leader (main session), these rules apply:
@@ -86,3 +118,4 @@ When operating as the team leader (main session), these rules apply:
 3. Run test suites, linters, or build commands (except 1-2 final smoke checks)
 4. Review code line-by-line (delegate to code-reviewer agent)
 5. Debug iteratively (delegate to worker agent with error context)
+6. In Tier 4, spawn multiple Directors simultaneously (only one active Director at a time)

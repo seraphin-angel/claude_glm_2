@@ -1,3 +1,5 @@
+import logging
+
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -8,17 +10,24 @@ from app.agents.tools import (
     check_quality,
     check_relevance,
     classify_query,
+    escalate_to_human,
     generate_answer,
     rewrite_query,
     search_knowledge,
 )
+from app.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
+
+# グローバル変数で checkpointer のタイプを管理
+_use_postgres = True
 
 
 def build_agent(checkpointer=None):
     """製品サポート Deep Agent を構築する。
 
     Args:
-        checkpointer: LangGraph checkpointer（デフォルトは MemorySaver）
+        checkpointer: LangGraph checkpointer（デフォルトは PostgresSaver または MemorySaver）
 
     Returns:
         コンパイル済み LangGraph エージェント
@@ -33,6 +42,7 @@ def build_agent(checkpointer=None):
         generate_answer,
         check_quality,
         ask_human,
+        escalate_to_human,
     ]
 
     if checkpointer is None:
@@ -51,14 +61,38 @@ def build_agent(checkpointer=None):
 # シングルトンでエージェントとチェックポインタを管理
 _agent = None
 _checkpointer = None
+_checkpointer_context = None
 
 
-def get_agent():
-    """エージェントのシングルトンインスタンスを取得"""
-    global _agent, _checkpointer
+async def get_agent():
+    """エージェントのシングルトンインスタンスを取得（非同期）"""
+    global _agent, _checkpointer, _checkpointer_context, _use_postgres
     if _agent is None:
-        _checkpointer = MemorySaver()
-        _agent = build_agent(checkpointer=_checkpointer)
+        if _use_postgres:
+            try:
+                from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+                settings = get_settings()
+                _checkpointer = AsyncPostgresSaver.from_conn_string(
+                    settings.database_url
+                )
+                # コンテキストマネージャとして初期化
+                _checkpointer_context = await _checkpointer.__aenter__()
+                # テーブルを作成（初回のみ必要）
+                await _checkpointer_context.setup()
+                _agent = build_agent(checkpointer=_checkpointer_context)
+                logger.info("PostgresSaver initialized successfully")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize PostgresSaver, falling back to MemorySaver: {e}"
+                )
+                _checkpointer = MemorySaver()
+                _checkpointer_context = None
+                _agent = build_agent(checkpointer=_checkpointer)
+        else:
+            _checkpointer = MemorySaver()
+            _checkpointer_context = None
+            _agent = build_agent(checkpointer=_checkpointer)
     return _agent
 
 
@@ -66,12 +100,42 @@ def get_checkpointer():
     """チェックポインタのシングルトンインスタンスを取得"""
     global _checkpointer
     if _checkpointer is None:
-        get_agent()
+        raise RuntimeError("Agent not initialized. Call get_agent() first.")
     return _checkpointer
 
 
 def reset_agent():
     """エージェントをリセット（テスト用）"""
-    global _agent, _checkpointer
+    global _agent, _checkpointer, _checkpointer_context
+    if _checkpointer_context is not None:
+        # 非同期コンテキストマネージャのクリーンアップが必要だが、
+        # 同期関数なのでここでは参照を解除するだけ
+        try:
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # イベントループが実行中の場合は非同期でクリーンアップをスケジュール
+                asyncio.create_task(_checkpointer_context.__aexit__(None, None, None))
+            else:
+                # イベントループが実行中でない場合は同期的に実行
+                loop.run_until_complete(_checkpointer_context.__aexit__(None, None, None))
+        except Exception:
+            pass  # クリーンアップエラーは無視
     _agent = None
     _checkpointer = None
+    _checkpointer_context = None
+
+
+def use_memory_saver():
+    """テスト用: MemorySaver を使用するように設定"""
+    global _use_postgres
+    _use_postgres = False
+    reset_agent()
+
+
+def use_postgres_saver():
+    """PostgresSaver を使用するように設定"""
+    global _use_postgres
+    _use_postgres = True
+    reset_agent()

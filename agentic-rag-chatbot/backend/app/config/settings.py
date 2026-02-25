@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     hybrid_search_alpha: float = 0.7
     bm25_top_k: int = 10
     relevance_skip_threshold: float = 0.85
+    retrieval_strategy: str = "standard"  # "standard" | "multi_query" | "hyde" | "hybrid"
+    multi_query_count: int = 3  # Number of queries to generate in Multi-Query
+    # Cross-Encoder Reranker settings
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_enabled: bool = True
+    reranker_top_k: int = 5
+    # PostgreSQL settings for PostgresSaver
+    database_url: str = "postgresql://chatbot_user:chatbot_password@localhost:5432/chatbot_db"
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import type { Message, ChatStatus, HITLRequest, ChatEvent } from '@/types/message'
+import type { Message, ChatStatus, HITLRequest, ChatEvent, SourceDocument, QualityScore } from '@/types/message'
 import { sendMessage, resumeChat } from '@/lib/api'
 import type { SSEConnection } from '@/lib/sse'
 import { createSSEConnection, closeSSEConnection } from '@/lib/sse'
@@ -21,6 +21,7 @@ interface UseChatReturn {
   readonly respondToHITL: (response: string) => Promise<void>
   readonly resetConversation: () => void
   readonly retryLastMessage: () => Promise<void>
+  readonly cancelRequest: () => void
 }
 
 export function useChat(): UseChatReturn {
@@ -36,6 +37,8 @@ export function useChat(): UseChatReturn {
   const eventSourceRef = useRef<SSEConnection | null>(null)
   const streamingContentRef = useRef('')
   const statusRef = useRef<ChatStatus>('idle')
+  const currentSourcesRef = useRef<readonly SourceDocument[]>([])
+  const currentQualityRef = useRef<QualityScore | null>(null)
 
   const updateStatus = useCallback((newStatus: ChatStatus) => {
     statusRef.current = newStatus
@@ -68,6 +71,22 @@ export function useChat(): UseChatReturn {
         )
         break
 
+      case 'source':
+        if (event.documents) {
+          currentSourcesRef.current = event.documents
+        }
+        break
+
+      case 'quality':
+        if (event.is_relevant !== undefined && event.confidence !== undefined) {
+          currentQualityRef.current = {
+            is_relevant: event.is_relevant,
+            confidence: event.confidence,
+            reasoning: event.reasoning ?? '',
+          }
+        }
+        break
+
       case 'hitl_request':
         // SSE切断し、HITL UI を表示
         closeSSEConnection(eventSourceRef.current)
@@ -88,11 +107,16 @@ export function useChat(): UseChatReturn {
             role: 'assistant',
             content: event.content,
             timestamp: new Date(),
+            sources: currentSourcesRef.current.length > 0 ? currentSourcesRef.current : undefined,
+            qualityScore: currentQualityRef.current ?? undefined,
           }
           setMessages((prev) => [...prev, assistantMessage])
         }
         setStreamingContent('')
         streamingContentRef.current = ''
+        // Reset sources and quality for next message
+        currentSourcesRef.current = []
+        currentQualityRef.current = null
         break
 
       case 'error':
@@ -218,6 +242,19 @@ export function useChat(): UseChatReturn {
     }
   }, [currentHITL, connectSSE, updateStatus])
 
+  const cancelRequest = useCallback(() => {
+    // SSE接続を切断
+    closeSSEConnection(eventSourceRef.current)
+    eventSourceRef.current = null
+
+    // ストリーミング状態をリセット
+    streamingContentRef.current = ''
+    statusRef.current = 'idle'
+    setStreamingContent('')
+    setActiveTool(null)
+    updateStatus('idle')
+  }, [updateStatus])
+
   return {
     messages,
     status,
@@ -230,5 +267,6 @@ export function useChat(): UseChatReturn {
     respondToHITL,
     resetConversation,
     retryLastMessage,
+    cancelRequest,
   }
 }

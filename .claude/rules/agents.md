@@ -57,12 +57,20 @@ When a user request scores 2+ on the complexity quick-check (see CLAUDE.md):
 2. Spawn a single Task sub-agent (`general-purpose`, `model: "sonnet"`)
 3. Wait for result, report to user
 
-### Score 3+ — Full Team Delegation
+### Score 3-4 — Full Team Delegation
 1. Announce: "チームを作成して対応します"
 2. TeamCreate to establish the team
 3. TaskCreate for all tasks with dependencies
 4. Present task list for user approval
 5. Execute via agent spawning (see `rules/delegation.md`)
+
+### Score 5+ — Hierarchical Delegation
+1. Announce: "大規模タスクのため、階層委譲（社長→部長→ワーカー）を行います"
+2. TeamCreate to establish the team
+3. Spawn ONE Director (`sequential-leader`, `model: "sonnet"`) with full project brief
+4. Director autonomously manages all tasks and workers
+5. CEO supervises only — answers clarifications, reports progress to user in Japanese
+6. See `rules/delegation.md` for Director Handoff Protocol
 
 The main session MUST NOT begin implementation work before completing these steps.
 
@@ -75,3 +83,4 @@ The main session MUST NOT begin implementation work before completing these step
 | Run tests & review | `code-reviewer` | sonnet |
 | Security audit | `security-reviewer` | (own setting) |
 | Architecture design | `architect` | (own setting) |
+| Manage large team as Director | `sequential-leader` | sonnet |
