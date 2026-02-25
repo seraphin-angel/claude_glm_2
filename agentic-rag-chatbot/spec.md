@@ -1,8 +1,8 @@
 # Agentic RAG チャットボット — システム仕様書
 
-> バージョン: 0.2.0
+> バージョン: 0.3.0
 > 作成日: 2026-02-22
-> 最終更新: 2026-02-24 (P1完了反映)
+> 最終更新: 2026-02-25 (P2完了反映)
 
 ---
 
@@ -39,6 +39,10 @@
 | HITL 対話 | 曖昧な質問に対してボタン選択またはテキスト入力で確認を求める |
 | SSE ストリーミング | Server-Sent Events によるリアルタイムトークン配信 |
 | スレッド管理 | 会話スレッドの継続・MemorySaver による状態保持 |
+| エスカレーション | 解決不能な問題の有人サポートへのエスカレーション（チケット管理） |
+| コスト可視化 | トークン消費量の記録とモデル別コスト集計 |
+| 構造化ロギング | structlog による JSON 形式の構造化ログとリクエストトレーシング |
+| プロアクティブ FAQ | ページ URL に基づく FAQ 推薦とトップ質問表示 |
 
 ### 技術スタック一覧
 
@@ -61,6 +65,11 @@
 | BM25検索 | rank_bm25 | >=0.2.2 |
 | 日本語トークナイザー | fugashi | >=1.3.0 |
 | Python | Python | >=3.11 |
+| 構造化ロギング | structlog | >=24.0.0 |
+| システムメトリクス | psutil | 最新 |
+| PostgreSQL ドライバ | asyncpg | 最新 |
+| チェックポインタ | langgraph-checkpoint-postgres | 最新 |
+| Cross-Encoder | sentence-transformers (CrossEncoder) | >=3.0.0 |
 
 #### フロントエンド
 
@@ -173,13 +182,16 @@ agentic-rag-chatbot/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI アプリ本体・ライフサイクル管理
+│   │   ├── core/
+│   │   │   └── logging.py           # 構造化ロギング・ミドルウェア (P2)
 │   │   ├── api/
 │   │   │   ├── __init__.py          # ルーター集約
 │   │   │   ├── chat.py              # チャット API エンドポイント
 │   │   │   ├── health.py            # ヘルスチェック
 │   │   │   ├── feedback.py          # フィードバック API (P1)
 │   │   │   ├── knowledge.py         # ナレッジ管理 API (P1)
-│   │   │   └── admin.py             # 管理者 API - ナレッジギャップ (P1)
+│   │   │   ├── admin.py             # 管理者 API - ナレッジギャップ (P1)
+│   │   │   └── faq.py               # FAQ API エンドポイント (P2)
 │   │   ├── auth/
 │   │   │   ├── __init__.py          # 公開関数エクスポート
 │   │   │   └── jwt_handler.py       # JWT トークン生成・検証
@@ -197,7 +209,8 @@ agentic-rag-chatbot/
 │   │   │       ├── relevance.py     # 関連性評価ツール (ギャップ記録含む)
 │   │   │       ├── generate.py      # 回答生成ツール (カテゴリ別プロンプト)
 │   │   │       ├── quality.py       # 品質チェックツール
-│   │   │       └── ask_human.py     # HITL ツール
+│   │   │       ├── ask_human.py     # HITL ツール
+│   │   │       └── escalation.py    # エスカレーションツール (P2)
 │   │   ├── config/
 │   │   │   └── settings.py          # 設定管理 (pydantic-settings)
 │   │   ├── rate_limit.py              # slowapi Limiter インスタンス
@@ -209,16 +222,25 @@ agentic-rag-chatbot/
 │   │   │   ├── vector_store.py      # ChromaDB ラッパー (multilingual-e5-base)
 │   │   │   ├── bm25_store.py        # BM25 インデックス (P1)
 │   │   │   ├── retriever.py         # ハイブリッド検索 (BM25 + Vector + RRF)
-│   │   │   └── document_loader.py   # Markdown ローダー・チャンク分割
+│   │   │   ├── document_loader.py   # Markdown ローダー・チャンク分割
+│   │   │   └── rewrite.py           # Multi-Query / HyDE クエリリライト (P2)
 │   │   └── services/
 │   │       ├── chat_service.py      # ChatService・イベントキュー管理
 │   │       ├── feedback_service.py  # フィードバック永続化 (P1)
 │   │       ├── knowledge_service.py # ナレッジ CRUD (P1)
-│   │       └── gap_service.py       # ナレッジギャップ検出 (P1)
+│   │       ├── gap_service.py       # ナレッジギャップ検出 (P1)
+│   │       ├── cost_service.py      # LLM コスト可視化 (P2)
+│   │       ├── escalation_service.py # エスカレーション管理 (P2)
+│   │       ├── faq_service.py       # FAQ サービス (P2)
+│   │       └── prompt_service.py    # プロンプト管理 (P2)
 │   ├── data/
 │   │   ├── chroma_db/               # ChromaDB 永続化ディレクトリ
 │   │   ├── feedback.json            # フィードバックデータ (P1)
 │   │   ├── knowledge_gaps.json      # ナレッジギャップデータ (P1)
+│   │   ├── faqs.json                # FAQ データ (P2)
+│   │   ├── prompts.json             # プロンプトデータ (P2)
+│   │   ├── token_usage.json         # トークン使用量データ (P2)
+│   │   ├── escalations.json         # エスカレーションデータ (P2)
 │   │   └── sample_docs/
 │   │       ├── product_guide.md     # 操作方法 FAQドキュメント
 │   │       ├── troubleshooting.md   # 障害・トラブル FAQドキュメント
@@ -241,10 +263,17 @@ agentic-rag-chatbot/
 │   │   ├── test_knowledge.py        # ナレッジ管理テスト (P1)
 │   │   ├── test_prompts.py          # カテゴリ別プロンプトテスト (P1)
 │   │   ├── test_security_headers.py # セキュリティヘッダーテスト (P1)
+│   │   ├── test_escalation_service.py # エスカレーション機能テスト (P2)
+│   │   ├── test_faq_api.py          # FAQ API テスト (P2)
+│   │   ├── test_prompt_service.py   # プロンプト管理テスト (P2)
+│   │   ├── test_settings.py         # 設定値テスト（P2項目含む）(P2)
+│   │   ├── evaluation/              # RAGAS 評価フレームワーク (P2)
+│   │   │   └── pipeline.py          # 評価パイプライン
 │   │   └── golden/
 │   │       ├── __init__.py
 │   │       └── questions.json       # ゴールデンQ&Aデータセット (P1)
 │   └── pyproject.toml
+├── docker-compose.yml               # Docker 構成 (P2)
 └── frontend/
     ├── src/
     │   ├── App.tsx                  # ルートコンポーネント
@@ -259,7 +288,12 @@ agentic-rag-chatbot/
     │   │   │   ├── SuggestChips.tsx # サジェストチップ (P1)
     │   │   │   ├── ToolProgress.tsx # ツール実行可視化 (P1)
     │   │   │   ├── MessageFeedback.tsx # フィードバックボタン (P1)
-    │   │   │   └── ErrorRecovery.tsx # エラーリカバリ (P1)
+    │   │   │   ├── ErrorRecovery.tsx # エラーリカバリ (P1)
+    │   │   │   ├── CopyButton.tsx       # コピーボタン (P2)
+    │   │   │   ├── ScrollToBottomButton.tsx # スクロールボタン (P2)
+    │   │   │   ├── WaitNotification.tsx # 長時間待機通知 (P2)
+    │   │   │   ├── SourceCitations.tsx  # 根拠可視化 (P2)
+    │   │   │   └── FAQSuggestions.tsx   # プロアクティブ FAQ (P2)
     │   │   ├── hitl/
     │   │   │   ├── HITLWidget.tsx   # HITL コンテナ
     │   │   │   ├── ClarificationButtons.tsx # ボタン選択UI
@@ -269,7 +303,8 @@ agentic-rag-chatbot/
     │   │   └── ErrorBoundary.tsx    # エラーバウンダリ
     │   ├── hooks/
     │   │   ├── useChat.ts           # チャット状態管理フック
-    │   │   └── useAutoScroll.ts     # 自動スクロールフック
+    │   │   ├── useAutoScroll.ts     # 自動スクロールフック
+    │   │   └── useWaitTimer.ts      # 待機タイマーフック (P2)
     │   ├── lib/
     │   │   ├── api.ts               # REST API クライアント
     │   │   ├── sse.ts               # SSE 接続管理 (自動リトライ付き)
@@ -301,6 +336,21 @@ agentic-rag-chatbot/
 | GET | `/api/admin/knowledge/{doc_id}` | JWT 必須 | 個別ドキュメント取得 (P1) |
 | DELETE | `/api/admin/knowledge/{doc_id}` | JWT 必須 | ドキュメント削除 (P1) |
 | GET | `/api/admin/knowledge-gaps` | JWT 必須 | ナレッジギャップ一覧 (P1) |
+| GET | `/api/health/detailed` | 不要 | 詳細ヘルスチェック (P2) |
+| GET | `/api/faq/suggestions` | JWT 必須 | ページ URL に基づく FAQ 推薦 (P2) |
+| GET | `/api/faq/top` | JWT 必須 | トップ質問取得 (P2) |
+| GET | `/api/faq/search` | JWT 必須 | FAQ キーワード検索 (P2) |
+| GET | `/api/faq/categories` | JWT 必須 | FAQ カテゴリ一覧 (P2) |
+| POST | `/api/faq/click` | JWT 必須 | FAQ 閲覧数記録 (P2) |
+| GET | `/api/admin/escalations` | JWT 必須 | エスカレーションチケット一覧 (P2) |
+| GET | `/api/admin/escalations/{ticket_id}` | JWT 必須 | チケット詳細取得 (P2) |
+| GET | `/api/admin/costs` | JWT 必須 | コスト情報取得 (P2) |
+| GET | `/api/admin/costs/check-limit` | JWT 必須 | コスト上限チェック (P2) |
+| GET | `/api/admin/prompts` | JWT 必須 | 全プロンプト一覧 (P2) |
+| GET | `/api/admin/prompts/{prompt_id}` | JWT 必須 | プロンプト詳細 (P2) |
+| PUT | `/api/admin/prompts/{prompt_id}` | JWT 必須 | プロンプト更新 (P2) |
+| POST | `/api/admin/prompts/{prompt_id}/rollback/{version}` | JWT 必須 | プロンプトロールバック (P2) |
+| GET | `/api/admin/prompts/{prompt_id}/history` | JWT 必須 | プロンプト変更履歴 (P2) |
 
 > **認証:** `/api/health` を除く全エンドポイントに JWT Bearer トークンが必要。`Authorization: Bearer <token>` ヘッダーで送信する。
 > **レート制限:** チャット系エンドポイントは `slowapi` によるレート制限あり（デフォルト: チャット `20/minute`、ストリーム `30/minute`）。
@@ -618,6 +668,10 @@ sequenceDiagram
 | `options` | list[str] \| None | None | HITL 選択肢リスト |
 | `input_type` | str \| None | None | HITL 入力タイプ ("buttons" \| "text") |
 | `tool_name` | str \| None | None | ツール名 |
+| `documents` | list[SourceDocument] \| None | None | ソースドキュメント（sourceイベント用）(P2) |
+| `is_relevant` | bool \| None | None | 関連性（qualityイベント用）(P2) |
+| `confidence` | float \| None | None | 信頼度（qualityイベント用）(P2) |
+| `reasoning` | str \| None | None | 評価理由（qualityイベント用）(P2) |
 
 **HITLRequest** (`app/models/hitl.py`)
 
@@ -653,6 +707,8 @@ sequenceDiagram
 | `message_complete` | 完全な回答テキストの確定 |
 | `error` | エラー発生 |
 | `done` | エージェント処理完了 |
+| `source` | ソースドキュメント情報（根拠可視化用）(P2) |
+| `quality` | 品質スコア情報（根拠可視化用）(P2) |
 
 #### AgentState の状態フィールド
 
@@ -675,7 +731,7 @@ sequenceDiagram
 
 #### エージェントの構成
 
-Deep Agent は `langgraph.prebuilt.create_react_agent` で構築された ReAct エージェントである。LLM モデルに `gpt-4o-mini`（temperature=0.1、streaming=True）を使用し、7 つのツールを持つ。状態は `MemorySaver` チェックポインタによりスレッド単位でインメモリ永続化される。
+Deep Agent は `langgraph.prebuilt.create_react_agent` で構築された ReAct エージェントである。LLM モデルに `gpt-4o-mini`（temperature=0.1、streaming=True）を使用し、8 つのツールを持つ。状態は `PostgresSaver`（フォールバック: MemorySaver）チェックポインタによりスレッド単位で永続化される。
 
 #### ReAct エージェントループ図
 
@@ -748,6 +804,7 @@ flowchart TD
 | `generate_answer` | `query: str`, `relevant_documents: list[dict]`, `category: str = ""` | `str` | 関連ドキュメントに基づいて回答を生成（カテゴリ別プロンプト使用） |
 | `check_quality` | `query: str`, `answer: str`, `source_documents: list[dict]` | `dict` (passed, hallucination_score, sufficiency_score, issues) | ハルシネーション（偽情報）と充足性を評価。両スコア 0.6 以上で合格 |
 | `ask_human` | `question: str`, `options: list[str] \| None = None`, `input_type: str = "text"` | `str` | LangGraph `interrupt()` でエージェントを中断しユーザーに質問 |
+| `escalate_to_human` | `reason: str`, `urgency: str`, `summary: str = ""` | `str` | 解決不能な問題を有人サポートにエスカレーション。チケット作成・会話サマリー自動生成 |
 
 #### ツール詳細仕様
 
@@ -792,6 +849,13 @@ flowchart TD
 - `options` 指定時は `input_type = "buttons"`（強制）
 - `options` なし時は `input_type = "text"`（強制）
 - `langgraph.types.interrupt()` でエージェントを中断し、`ChatService._handle_interrupt()` で SSE へ `HITL_REQUEST` イベントを送出
+
+**escalate_to_human** (P2)
+- `EscalationInput` スキーマ: reason（理由）, urgency（"low"/"medium"/"high"）, summary（空の場合は自動生成）
+- `EscalationService.create_ticket()` でチケットを作成
+- チケットID: `ESC-{uuid8}` 形式
+- 戻り値: 「エスカレーションを受け付けました。チケットID: ESC-XXXXXXXX 担当者より折り返しご連絡いたします。」
+- エスカレーション判断基準: 明示的有人対応希望、技術的解決不可能、法的金銭的重要事項、3回以上同一質問
 
 ---
 
@@ -943,6 +1007,29 @@ RRF_score(d) = alpha * (1 / (K + rank_vector(d))) + (1 - alpha) * (1 / (K + rank
 }
 ```
 
+#### Cross-Encoder リランキング (P2)
+
+`CrossEncoderReranker` クラス (`app/rag/retriever.py`) はハイブリッド検索結果に対して Cross-Encoder によるリランキングを実行する。
+
+| 項目 | 値 |
+|------|-----|
+| モデル | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| パターン | シングルトン（遅延ロード） |
+| 入力 | query + documents (list[dict]) |
+| 出力 | リランキング済みドキュメント（rerank_score 追加） |
+| 設定 | `reranker_enabled`, `reranker_model`, `reranker_top_k` |
+
+#### 検索戦略 (P2)
+
+`retrieve_with_strategy()` (`app/rag/rewrite.py`) は設定に基づいて検索戦略を選択する。
+
+| 戦略 | 設定値 | 説明 |
+|------|--------|------|
+| 標準 | `"standard"` | 通常のハイブリッド検索 |
+| Multi-Query | `"multi_query"` | 3つのクエリバリエーションで並列検索、RRF で統合 |
+| HyDE | `"hyde"` | 仮説的回答文書を生成して検索精度を向上 |
+| ハイブリッド | `"hybrid"` | Multi-Query + HyDE の組み合わせ |
+
 ---
 
 ### 3.5 HITL (Human-in-the-Loop)
@@ -1018,12 +1105,18 @@ graph TD
     CW --> ML[MessageList]
     CW --> CI[ChatInput]
     CW --> HW[HITLWidget]
+    CW --> WN[WaitNotification]
+    CW --> FS[FAQSuggestions]
+    CW --> SB[ScrollToBottomButton]
     ML --> MB[MessageBubble]
     ML --> TI[TypingIndicator]
+    MB --> CPB[CopyButton]
+    MB --> SC[SourceCitations]
     HW --> CB[ClarificationButtons]
     HW --> CIN[ClarificationInput]
     CW -->|useChat hook| UC{useChat}
     UC -->|useAutoScroll| UAS{useAutoScroll}
+    UC -->|useWaitTimer| UWT{useWaitTimer}
     UC -->|api.ts| API[sendMessage / resumeChat]
     UC -->|sse.ts| SSE[createSSEConnection]
 ```
@@ -1087,6 +1180,40 @@ graph TD
 | `disabled` | boolean | 入力無効フラグ |
 | `placeholder` | string? | プレースホルダーテキスト |
 
+**CopyButton** (P2)
+
+| Prop | 型 | 説明 |
+|------|-----|------|
+| `text` | string | コピー対象テキスト |
+
+**ScrollToBottomButton** (P2)
+
+| Prop | 型 | 説明 |
+|------|-----|------|
+| `isVisible` | boolean | 表示フラグ |
+| `onClick` | `() => void` | クリックコールバック |
+
+**WaitNotification** (P2)
+
+| Prop | 型 | 説明 |
+|------|-----|------|
+| `showWarning` | boolean | 30秒超過警告表示 |
+| `showError` | boolean | 60秒超過エラー表示 |
+| `onCancel` | `() => void` | キャンセルコールバック |
+
+**SourceCitations** (P2)
+
+| Prop | 型 | 説明 |
+|------|-----|------|
+| `sources` | `readonly SourceDocument[]` | ソースドキュメント一覧 |
+| `qualityScore` | `QualityScore?` | 品質スコア |
+
+**FAQSuggestions** (P2)
+
+| Prop | 型 | 説明 |
+|------|-----|------|
+| `onPageSelect` | `((question: string) => void)?` | FAQ 選択コールバック |
+
 ---
 
 ### 4.2 状態管理
@@ -1107,6 +1234,9 @@ graph TD
 | `error` | `string \| null` | エラーメッセージ |
 | `send` | `(message: string) => Promise<void>` | メッセージ送信関数 |
 | `respondToHITL` | `(response: string) => Promise<void>` | HITL 回答関数 |
+| `cancelRequest` | `() => void` | リクエストキャンセル関数（SSE切断+状態リセット）(P2) |
+| `sources` | `readonly SourceDocument[]` | ソースドキュメント (P2) |
+| `qualityScore` | `QualityScore \| null` | 品質スコア (P2) |
 
 #### useChat 状態遷移図
 
@@ -1418,6 +1548,14 @@ flowchart TD
 | `RATE_LIMIT_CHAT` | str | `"20/minute"` | チャットエンドポイントのレート制限 |
 | `RATE_LIMIT_STREAM` | str | `"30/minute"` | ストリームエンドポイントのレート制限 |
 | `DEBUG_MODE` | bool | `false` | デバッグモード（true の場合、エラーレスポンスにスタックトレースを含める） |
+| `RETRIEVAL_STRATEGY` | str | `"standard"` | 検索戦略（"standard"\|"multi_query"\|"hyde"\|"hybrid"）(P2) |
+| `MULTI_QUERY_COUNT` | int | `3` | Multi-Query 生成数 (P2) |
+| `RERANKER_MODEL` | str | `"cross-encoder/ms-marco-MiniLM-L-6-v2"` | リランカーモデル名 (P2) |
+| `RERANKER_ENABLED` | bool | `true` | リランカー有効化 (P2) |
+| `RERANKER_TOP_K` | int | `5` | リランカー出力数 (P2) |
+| `DATABASE_URL` | str | `"postgresql://chatbot_user:chatbot_password@localhost:5432/chatbot_db"` | PostgreSQL 接続文字列 (P2) |
+| `DATABASE_POOL_SIZE` | int | `5` | コネクションプールサイズ (P2) |
+| `DATABASE_MAX_OVERFLOW` | int | `10` | オーバーフロー許容数 (P2) |
 
 ### Settings クラスのフィールド定義
 
@@ -1445,6 +1583,16 @@ class Settings(BaseSettings):
     hybrid_search_alpha: float = 0.7
     bm25_top_k: int = 10
     relevance_skip_threshold: float = 0.85
+
+    # P2 追加
+    retrieval_strategy: str = "standard"
+    multi_query_count: int = 3
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_enabled: bool = True
+    reranker_top_k: int = 5
+    database_url: str = "postgresql://chatbot_user:chatbot_password@localhost:5432/chatbot_db"
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 ```
@@ -1495,6 +1643,12 @@ server: {
 | `tests/test_prompts.py` | カテゴリ別プロンプト（Few-shot・引用フォーマット） (P1) |
 | `tests/test_security_headers.py` | セキュリティヘッダー（X-Frame-Options等） (P1) |
 | `tests/test_settings.py` | 設定値（SecretStrマスク・環境変数読み込み） (P1) |
+| `tests/test_escalation_service.py` | エスカレーション機能（チケット作成・取得・サマリー生成）(P2) |
+| `tests/test_faq_api.py` | FAQ API（推薦・検索・閲覧数記録）(P2) |
+| `tests/test_prompt_service.py` | プロンプト管理（CRUD・バージョン管理・ロールバック）(P2) |
+| `tests/test_settings.py` (更新) | 設定値（新規P2項目含む）(P2) |
+| `tests/test_tools.py` (更新) | 全 8 ツール（StructuredOutput + ChatPromptTemplate ベース）(P2) |
+| `tests/evaluation/pipeline.py` | RAGAS 評価パイプライン（4指標評価・レポート生成）(P2) |
 
 ### テスト設定
 
@@ -1510,7 +1664,7 @@ server: {
 
 目標カバレッジ: 80% 以上。
 
-テスト合計数: 330 テスト（P1完了時点）。
+テスト合計数: 544 テスト（P2完了時点）。
 
 各レイヤーのテスト戦略:
 - **モデルテスト**: バリデーションルール、フィールドのデフォルト値、enum 値の検証
@@ -1559,11 +1713,11 @@ server: {
 
 | 項目 | 内容 |
 |------|------|
-| **インメモリ状態管理** | `MemorySaver` はプロセス再起動で会話履歴が消失する |
+| **インメモリ状態管理** | `PostgresSaver` 導入済み（P2-40）。接続エラー時は `MemorySaver` にフォールバック |
 | **インメモリキュー** | `ChatService._queues` / `_tasks` はプロセスメモリに保持されるため、マルチプロセス・水平スケーリング不可 |
 | **スレッドクリーンアップ** | SSE 終了時に `finally` で `cleanup()` を呼び出すが、SSE 未接続のまま放置されたキューは LRU eviction（上限 1000）に依存する |
 | **ドキュメント更新** | ドキュメント追加・削除はAPIで可能だが、更新（PUT）は未実装。更新時は削除→追加で対応 |
-| **LLM 呼び出しの多さ** | 1 回の回答生成で最大 5〜6 回（classify, rewrite, relevance, generate, quality + HITL）LLM API を呼び出す |
+| **LLM 呼び出しの多さ** | 1 回の回答生成で最大 6〜7 回（classify, rewrite, relevance, generate, quality, escalation + HITL）LLM API を呼び出す |
 | **エラーリカバリ** | 品質チェック失敗時の再試行ロジックはシステムプロンプトの指示に依存しており、実装上の制限がある |
 | **シングルトン** | `VectorStore`, `ChatService`, `Deep Agent` はいずれもプロセスシングルトンのためテスト間の分離に注意が必要 |
 | **確認ダイアログ未実装** | 「新しい会話」ボタンに確認ダイアログが未実装（誤操作防止） |
@@ -1582,11 +1736,20 @@ server: {
 | ~~**フィードバック機能**~~ | ~~回答へのフィードバック収集~~ → **P1-23 で実装済み**（thumbs up/down） |
 | ~~**ナレッジギャップ検出**~~ | ~~回答できなかった質問の可視化~~ → **P1-33 で実装済み** |
 
+### P2で完了した項目
+
+| 項目 | 内容 |
+|------|------|
+| ~~**インメモリ状態管理**~~ | ~~`MemorySaver` はプロセス再起動で会話履歴が消失する~~ → **P2-40 で PostgresSaver 移行済み**（フォールバック付き） |
+| ~~**構造化ロギング**~~ | ~~ログフォーマットの統一~~ → **P2-41 で structlog 導入済み**（JSON形式・リクエストID相関） |
+| ~~**コスト可視化**~~ | ~~LLM呼び出しのコスト管理~~ → **P2-42 で実装済み**（トークン記録・モデル別集計・上限アラート） |
+| ~~**ヘルスチェック詳細化**~~ | ~~外部サービスの疎通確認~~ → **P2-43 で実装済み**（ChromaDB・OpenAI・メモリ使用量） |
+
 ### 拡張ポイント
 
 | 項目 | 概要 |
 |------|------|
-| **永続化チェックポインタ** | `MemorySaver` を `PostgresSaver` / `RedisSaver` に置き換えることで会話履歴の永続化とスケールアウトが可能 |
+| ~~**永続化チェックポインタ**~~ | ~~MemorySaver を PostgresSaver / RedisSaver に~~ → **P2-40 で PostgresSaver 移行済み** |
 | **Redis キュー** | `asyncio.Queue` を Redis Pub/Sub または Redis Streams に置き換えることで水平スケーリングに対応 |
 | **ドキュメント更新API** | `PUT /api/admin/knowledge/{doc_id}` の実装 |
 | **ユーザー管理** | JWT 認証は実装済みだが、ユーザー登録・ロール管理・トークンリフレッシュは未実装 |
