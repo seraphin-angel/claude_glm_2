@@ -7,7 +7,7 @@
 
 | 完了 | 進行中 | 未着手 | ブロック | 進捗率 |
 |------|--------|--------|----------|--------|
-| 0 | 0 | 9 | 0 | 0% |
+| 3 | 0 | 6 | 0 | 33% |
 
 ---
 
@@ -21,25 +21,32 @@
 | カテゴリ | エンタープライズ |
 | 難易度 | 高 |
 | 対象ファイル | 全体アーキテクチャ, ChromaDB, 認証 |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** テナントごとの ChromaDB コレクション分離、API リクエストからのテナント ID 取得。
 
 **受け入れ条件:**
-- [ ] テナント識別子の設計（サブドメイン / ヘッダー / パス）
-- [ ] ChromaDB コレクションのテナント分離
-- [ ] テナントごとの設定管理（LLMモデル、プロンプト等）
-- [ ] テナント間のデータ隔離検証
-- [ ] テナント管理 API の実装
+- [x] テナント識別子の設計（サブドメイン / ヘッダー / パス）→ X-Tenant-ID ヘッダー方式
+- [x] ChromaDB コレクションのテナント分離 → `{tenant_id}_{collection_name}` 形式
+- [x] テナントごとの設定管理（LLMモデル、プロンプト等）→ TenantConfig モデル
+- [x] テナント間のデータ隔離検証 → ContextVar + ミドルウェアで分離
+- [x] テナント管理 API の実装 → `/api/tenants` CRUD エンドポイント
 
 **依存:** P0-10（JWT認証）, P2-40（PostgresSaver）
 
 **備考:**
 ```
+テスト: 30件（全パス）
+実装ファイル:
+- backend/app/models/tenant.py（Tenant, TenantConfig モデル、frozen=True）
+- backend/app/middleware/tenant.py（TenantMiddleware、ContextVar）
+- backend/app/services/tenant_service.py（テナント CRUD）
+- backend/app/api/tenant.py（/api/tenants エンドポイント）
+- backend/tests/test_tenant.py
 ```
 
 ---
@@ -52,24 +59,30 @@
 | カテゴリ | エンタープライズ |
 | 難易度 | 中 |
 | 対象ファイル | データベース層, 新規: データ管理モジュール |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** テナントごとのデータ保持期間設定、GDPR「忘れられる権利」対応、自動削除ジョブ。
 
 **受け入れ条件:**
-- [ ] データ保持期間の設定（30日/90日/365日）
-- [ ] 期限切れデータの自動削除ジョブ
-- [ ] ユーザーデータ削除 API（「忘れられる権利」）
-- [ ] 削除ログの監査証跡
+- [x] データ保持期間の設定（30日/90日/365日）→ RetentionPolicy モデル
+- [x] 期限切れデータの自動削除ジョブ → run_cleanup_job()
+- [x] ユーザーデータ削除 API（「忘れられる権利」）→ DELETE /api/gdpr/data（Article 17）
+- [x] 削除ログの監査証跡 → AuditLogEntry モデル + GET /api/gdpr/audit-logs
 
 **依存:** P2-40（PostgresSaver）, P3-48（マルチテナント）
 
 **備考:**
 ```
+テスト: 22件（全パス）
+実装ファイル:
+- backend/app/models/retention.py（RetentionPolicy, DataDeletionRequest, AuditLogEntry）
+- backend/app/services/retention_service.py（ポリシー管理、ユーザーデータ削除、監査ログ、クリーンアップジョブ）
+- backend/app/api/gdpr.py（/api/gdpr エンドポイント）
+- backend/tests/test_retention.py
 ```
 
 ---
@@ -82,24 +95,32 @@
 | カテゴリ | エンタープライズ |
 | 難易度 | 高 |
 | 対象ファイル | 新規: 連携アダプターモジュール |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** Salesforce / Zendesk / Freshdesk 等の外部チケットシステムとの連携。
 
 **受け入れ条件:**
-- [ ] チケットシステム連携のアダプターインターフェース設計
-- [ ] 最低1つの外部システムとの統合（例: Zendesk）
-- [ ] エスカレーション時の自動チケット作成
-- [ ] チケットステータスの双方向同期
+- [x] チケットシステム連携のアダプターインターフェース設計 → BaseTicketAdapter 抽象基底クラス
+- [x] 最低1つの外部システムとの統合（例: Zendesk）→ ZendeskAdapter 実装
+- [x] エスカレーション時の自動チケット作成 → on_escalation() フック
+- [x] チケットステータスの双方向同期 → update_ticket() / close_ticket()
 
 **依存:** P2-45（エスカレーションツール）
 
 **備考:**
 ```
+テスト: 27件（全パス）
+実装ファイル:
+- backend/app/integrations/base.py（BaseTicketAdapter、TicketData、TicketPriority、TicketStatus）
+- backend/app/integrations/mock_adapter.py（テスト・開発用モックアダプター）
+- backend/app/integrations/zendesk.py（Zendesk Support API アダプター）
+- backend/app/services/integration_service.py（アダプター管理、エスカレーション時自動チケット作成）
+- backend/app/api/integrations.py（/api/integrations エンドポイント）
+- backend/tests/test_crm_integration.py
 ```
 
 ---
