@@ -144,7 +144,7 @@ describe('api', () => {
         '/api/chat',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ message: 'hello', thread_id: 'existing-thread' }),
+          body: JSON.stringify({ message: 'hello', thread_id: 'existing-thread', image_data: null }),
         }),
       )
     })
@@ -160,7 +160,7 @@ describe('api', () => {
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/chat',
         expect.objectContaining({
-          body: JSON.stringify({ message: 'hello', thread_id: null }),
+          body: JSON.stringify({ message: 'hello', thread_id: null, image_data: null }),
         }),
       )
     })
@@ -241,6 +241,86 @@ describe('api', () => {
 
       await expect(sendFeedback('msg-1', 'positive')).rejects.toThrow(
         'サーバーからの応答を解析できませんでした。しばらく待ってから再試行してください。',
+      )
+    })
+  })
+
+  describe('uploadImage', () => {
+    it('正常に画像をアップロードできる', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { image_id: 'img-1' } }),
+      })
+
+      const { uploadImage } = await import('../api')
+      const result = await uploadImage('base64data', 'test.png', 'image/png')
+
+      expect(result.success).toBe(true)
+      expect(result.data?.image_id).toBe('img-1')
+    })
+
+    it('画像アップロード時に正しいリクエストを送信する', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { image_id: 'img-1' } }),
+      })
+
+      const { uploadImage } = await import('../api')
+      await uploadImage('base64data', 'test.png', 'image/png')
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/chat/image',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ image_data: 'base64data', filename: 'test.png', mime_type: 'image/png' }),
+        }),
+      )
+    })
+
+    it('ネットワークエラー時にユーザーフレンドリーなメッセージを投げる', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new TypeError('Failed to fetch'),
+      )
+
+      const { uploadImage } = await import('../api')
+      await expect(uploadImage('base64data', 'test.png', 'image/png')).rejects.toThrow(
+        'ネットワークに接続できません。インターネット接続を確認してください。',
+      )
+    })
+  })
+
+  describe('sendMessage with image', () => {
+    it('画像データ付きでメッセージを送信できる', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { thread_id: 'thread-1' } }),
+      })
+
+      const result = await sendMessage('hello', null, 'base64imagedata')
+
+      expect(result.success).toBe(true)
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/chat',
+        expect.objectContaining({
+          body: JSON.stringify({ message: 'hello', thread_id: null, image_data: 'base64imagedata' }),
+        }),
+      )
+    })
+
+    it('画像なしでも従来通り動作する', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { thread_id: 'thread-1' } }),
+      })
+
+      const result = await sendMessage('hello')
+
+      expect(result.success).toBe(true)
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/chat',
+        expect.objectContaining({
+          body: JSON.stringify({ message: 'hello', thread_id: null, image_data: null }),
+        }),
       )
     })
   })

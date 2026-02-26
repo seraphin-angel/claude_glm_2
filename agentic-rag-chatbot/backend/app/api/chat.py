@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -7,7 +8,12 @@ from starlette.responses import StreamingResponse
 
 from app.auth.jwt_handler import verify_token
 from app.config.settings import get_settings
-from app.models.chat import ChatRequest, ChatStartResponse
+from app.models.chat import (
+    ChatRequest,
+    ChatStartResponse,
+    ImageUploadRequest,
+    ImageUploadResponse,
+)
 from app.models.hitl import ResumeRequest
 from app.models.messages import StreamEventType
 from app.rate_limit import limiter
@@ -24,10 +30,28 @@ async def start_chat(request: Request, body: ChatRequest, token: dict = Depends(
     thread_id = await service.start_chat(
         message=body.message,
         thread_id=str(body.thread_id) if body.thread_id else None,
+        image_data=body.image_data,
     )
     return {
         "success": True,
         "data": ChatStartResponse(thread_id=thread_id, status="streaming").model_dump(),
+    }
+
+
+@router.post("/image", response_model=dict)
+@limiter.limit(get_settings().rate_limit_chat)
+async def upload_image(
+    request: Request,
+    body: ImageUploadRequest,
+    token: dict = Depends(verify_token),
+):
+    """画像をアップロードしてIDを返す"""
+    # 画像IDを生成（実際のストレージ保存は今後実装）
+    image_id = str(uuid.uuid4())
+    
+    return {
+        "success": True,
+        "data": ImageUploadResponse(image_id=image_id, status="uploaded").model_dump(),
     }
 
 

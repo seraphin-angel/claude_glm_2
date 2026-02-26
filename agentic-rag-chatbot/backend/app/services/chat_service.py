@@ -71,15 +71,26 @@ class ChatService:
             self._queues[thread_id] = asyncio.Queue(maxsize=self.QUEUE_MAXSIZE)
         return self._queues[thread_id]
 
-    async def start_chat(self, message: str, thread_id: str | None = None) -> str:
-        """新規チャットを開始またはメッセージを送信"""
+    async def start_chat(
+        self,
+        message: str,
+        thread_id: str | None = None,
+        image_data: str | None = None,
+    ) -> str:
+        """新規チャットを開始またはメッセージを送信
+        
+        Args:
+            message: ユーザーメッセージ
+            thread_id: 既存スレッドID（新規の場合はNone）
+            image_data: Base64エンコードされた画像データ（オプション）
+        """
         if thread_id is None:
             thread_id = str(uuid.uuid4())
 
         queue = self.get_or_create_queue(thread_id)
 
         task = asyncio.create_task(
-            self._run_agent(thread_id, message, queue)
+            self._run_agent(thread_id, message, queue, image_data)
         )
         self._tasks[thread_id] = task
 
@@ -208,12 +219,24 @@ class ChatService:
         finally:
             await queue.put(StreamEvent(type=StreamEventType.DONE))
 
-    async def _run_agent(self, thread_id: str, message: str, queue: asyncio.Queue) -> None:
+    async def _run_agent(
+        self,
+        thread_id: str,
+        message: str,
+        queue: asyncio.Queue,
+        image_data: str | None = None,
+    ) -> None:
         """エージェントを実行しイベントをキューに送出"""
-        agent = get_agent()
+        agent = await get_agent()
         config = {"configurable": {"thread_id": thread_id}}
+        
+        # 画像がある場合はメッセージに画像情報を追加
+        input_messages = {"messages": [("user", message)]}
+        if image_data:
+            input_messages["image_data"] = image_data
+        
         event_stream = agent.astream_events(
-            {"messages": [("user", message)]},
+            input_messages,
             config=config,
             version="v2",
         )
@@ -227,7 +250,7 @@ class ChatService:
         config: dict,
     ) -> None:
         """HITL中断からエージェントを再開"""
-        agent = get_agent()
+        agent = await get_agent()
         event_stream = agent.astream_events(
             Command(resume=response),
             config=config,
@@ -242,7 +265,7 @@ class ChatService:
         config: dict,
     ) -> None:
         """interrupt() を検出しHITLリクエストイベントを送出"""
-        agent = get_agent()
+        agent = await get_agent()
         state = agent.get_state(config)
 
         request_id = str(uuid.uuid4())

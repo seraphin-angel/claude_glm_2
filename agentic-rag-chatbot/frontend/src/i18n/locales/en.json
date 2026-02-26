@@ -1,0 +1,23 @@
+{
+  "common": {
+    "send": "Send",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "save": "Save",
+    "loading": "Loading...",
+    "error": "An error occurred"
+  },
+  "chat": {
+    "placeholder": "Enter your message...",
+    "attachImage": "Attach image",
+    "removeImage": "Remove image",
+    "dragDropImage": "Drag & drop an image",
+    "unsupportedFormat": "Unsupported image format",
+    "imageTooLarge": "Image is too large (max 10MB)"
+  },
+  "language": {
+    "switch": "Switch language",
+    "ja": "日本語",
+    "en": "English"
+  }
+}

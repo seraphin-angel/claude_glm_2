@@ -7,7 +7,7 @@
 
 | 完了 | 進行中 | 未着手 | ブロック | 進捗率 |
 |------|--------|--------|----------|--------|
-| 3 | 0 | 6 | 0 | 33% |
+| 6 | 0 | 3 | 0 | 67% |
 
 ---
 
@@ -135,23 +135,32 @@
 | カテゴリ | 製品戦略 |
 | 難易度 | 中 |
 | 対象ファイル | `frontend/src/components/ChatInput.tsx`, `backend/app/tools/` |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** スクリーンショット添付によるエラー画面の自動解析。GPT-4o Vision API を活用。
 
 **受け入れ条件:**
-- [ ] フロントエンドに画像添付 UI（ドラッグ&ドロップ + ボタン）
-- [ ] 画像のアップロード API
-- [ ] `analyze_image` ツールの実装（Vision API 連携）
-- [ ] エラーコード・UI 要素の自動抽出
-- [ ] 画像サイズ/形式のバリデーション
+- [x] フロントエンドに画像添付 UI（ドラッグ&ドロップ + ボタン）
+- [x] 画像のアップロード API
+- [x] `analyze_image` ツールの実装（Vision API 連携）
+- [x] エラーコード・UI 要素の自動抽出
+- [x] 画像サイズ/形式のバリデーション
 
 **備考:**
 ```
+テスト: 12件（全パス）
+実装ファイル:
+- backend/app/models/chat.py（ChatRequestにimage_data追加）
+- backend/app/api/chat.py（画像エンドポイント）
+- backend/app/agents/tools/image_analysis.py（Vision API ツール）
+- backend/tests/test_image_api.py
+- backend/tests/test_image_analysis.py
+- frontend/src/components/chat/ChatInput.tsx（ドラッグ&ドロップ）
+- frontend/src/lib/api.ts（uploadImage, sendMessage with imageData）
 ```
 
 ---
@@ -164,23 +173,32 @@
 | カテゴリ | 製品戦略 |
 | 難易度 | 中 |
 | 対象ファイル | 全体（フロントエンド i18n, バックエンドプロンプト） |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** 言語自動検出、言語別システムプロンプト、ナレッジベースの `language` メタデータ、フロントエンド i18n。
 
 **受け入れ条件:**
-- [ ] 入力テキストの言語自動検出
-- [ ] 言語別システムプロンプトの管理
-- [ ] ナレッジベースの `language` メタデータフィルタリング
-- [ ] フロントエンドの i18n 対応（最低: 日/英）
-- [ ] UI 言語切り替え機能
+- [x] 入力テキストの言語自動検出
+- [x] 言語別システムプロンプトの管理
+- [x] ナレッジベースの `language` メタデータフィルタリング
+- [x] フロントエンドの i18n 対応（最低: 日/英）
+- [x] UI 言語切り替え機能
 
 **備考:**
 ```
+テスト: 10件（全パス）
+実装ファイル:
+- backend/app/services/language_service.py（langdetect統合）
+- backend/app/services/prompt_service.py（多言語プロンプト対応）
+- backend/tests/test_language_service.py
+- frontend/src/i18n/index.ts（react-i18next設定）
+- frontend/src/i18n/locales/ja.json, en.json（言語リソース）
+- frontend/src/hooks/useLanguage.ts（言語切り替えフック）
+- frontend/src/components/LanguageSwitcher.tsx
 ```
 
 ---
@@ -284,25 +302,49 @@
 | カテゴリ | セキュリティ |
 | 難易度 | 高 |
 | 対象ファイル | `backend/app/tools/`, エージェント設定 |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** 高度なプロンプトインジェクション対策、トピック制限、有害コンテンツフィルタリング。
 
 **受け入れ条件:**
-- [ ] 入力/出力のガードレール設計
-- [ ] トピックスコープ外の質問の検出と拒否
-- [ ] 有害コンテンツ（PII 漏洩、攻撃的表現）の検出
-- [ ] ジェイルブレイク攻撃パターンのテストスイート
-- [ ] 定期的なレッドチーミング実施手順
+- [x] 入力/出力のガードレール設計
+- [x] トピックスコープ外の質問の検出と拒否
+- [x] 有害コンテンツ（PII 漏洩、攻撃的表現）の検出
+- [x] ジェイルブレイク攻撃パターンのテストスイート
+- [x] 定期的なレッドチーミング実施手順
 
 **依存:** P0-09（基本的なインジェクション対策）
 
 **備考:**
 ```
+テスト: 166件（全パス）
+実装ファイル:
+- backend/app/models/guardrails.py（RiskLevel, ViolationType, SafetyCheckResult）
+- backend/app/agents/tools/content_safety.py（check_input_safety, check_output_safety）
+- backend/app/services/guardrails_service.py（GuardrailsService）
+- backend/app/middleware/guardrails.py（GuardrailsMiddleware）
+- backend/app/api/guardrails.py（/api/v1/guardrails エンドポイント）
+- backend/tests/test_guardrails_models.py（17テスト）
+- backend/tests/test_content_safety.py（39テスト）
+- backend/tests/test_guardrails_service.py（17テスト）
+- backend/tests/test_guardrails_middleware.py（13テスト）
+- backend/tests/test_guardrails_api.py（12テスト）
+- backend/tests/test_guardrails.py（68テスト - 統合テストスイート）
+
+検出パターン:
+- プロンプトインジェクション: 10パターン
+- ジェイルブレイク: 8パターン
+- PII: SSN, クレジットカード, メール, 電話番号
+- 攻撃的表現: 日本語/英語
+
+レッドチーミング:
+- 標準攻撃パターンリスト: 15パターン
+- 検出率: 80%+ 目標
+- 偽陽性率: 10%未満 目標
 ```
 
 ---

@@ -83,6 +83,7 @@ class TestStartChatEndpoint:
         mock_service.start_chat.assert_called_once_with(
             message="続きの質問",
             thread_id=existing_thread,
+            image_data=None,
         )
 
     async def test_start_chat_empty_message_returns_422(self, client: AsyncClient, auth_headers: dict):
@@ -127,6 +128,7 @@ class TestStartChatEndpoint:
         mock_service.start_chat.assert_called_once_with(
             message="こんにちは",
             thread_id=None,
+            image_data=None,
         )
 
     async def test_start_chat_invalid_thread_id_returns_422(self, client: AsyncClient, auth_headers: dict):
@@ -511,12 +513,12 @@ class TestChatService:
         # DEBUG_MODE が false の場合
         os.environ.pop("DEBUG_MODE", None)
 
-        with patch("app.agents.agent.get_agent") as mock_get_agent:
+        with patch("app.services.chat_service.get_agent", new_callable=AsyncMock) as mock_get_agent:
             mock_agent = MagicMock()
             mock_agent.astream_events = AsyncMock(side_effect=RuntimeError("Internal DB connection failed at host:5432"))
             mock_get_agent.return_value = mock_agent
 
-            await service._run_agent("err-thread", "テスト", queue)
+            await service._run_agent("err-thread", "テスト", queue, None)
 
         events = []
         while not queue.empty():
@@ -546,12 +548,12 @@ class TestChatService:
             for event in events:
                 yield event
 
-        with patch("app.services.chat_service.get_agent") as mock_get_agent:
+        with patch("app.services.chat_service.get_agent", new_callable=AsyncMock) as mock_get_agent:
             mock_agent = MagicMock()
             mock_agent.astream_events = mock_astream_events
             mock_get_agent.return_value = mock_agent
 
-            await service._run_agent("step-thread", "テスト", queue)
+            await service._run_agent("step-thread", "テスト", queue, None)
 
         collected = []
         while not queue.empty():

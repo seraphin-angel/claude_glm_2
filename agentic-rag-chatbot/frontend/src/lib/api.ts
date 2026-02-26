@@ -37,12 +37,13 @@ async function createHttpErrorMessage(response: Response): Promise<string> {
 export async function sendMessage(
   message: string,
   threadId: string | null = null,
+  imageData?: string,
 ): Promise<ApiResponse<ChatStartData>> {
   try {
     const response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, thread_id: threadId }),
+      body: JSON.stringify({ message, thread_id: threadId, image_data: imageData ?? null }),
     })
 
     if (!response.ok) {
@@ -50,6 +51,28 @@ export async function sendMessage(
     }
 
     return (await response.json()) as ApiResponse<ChatStartData>
+  } catch (error) {
+    throw handleNetworkError(error)
+  }
+}
+
+export async function uploadImage(
+  imageData: string,
+  filename: string,
+  mimeType: string,
+): Promise<ApiResponse<{ image_id: string }>> {
+  try {
+    const response = await fetch(`${API_BASE}/chat/image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_data: imageData, filename, mime_type: mimeType }),
+    })
+
+    if (!response.ok) {
+      throw new Error(await createHttpErrorMessage(response))
+    }
+
+    return (await response.json()) as ApiResponse<{ image_id: string }>
   } catch (error) {
     throw handleNetworkError(error)
   }

@@ -177,6 +177,7 @@ def create_app() -> FastAPI:
         faq_router,
         feedback_router,
         gdpr_router,
+        guardrails_router,
         health_router,
         integrations_router,
         knowledge_router,
@@ -192,6 +193,7 @@ def create_app() -> FastAPI:
     app.include_router(tenant_router)
     app.include_router(gdpr_router)
     app.include_router(integrations_router)
+    app.include_router(guardrails_router, prefix="/api/v1")
 
     return app
 
