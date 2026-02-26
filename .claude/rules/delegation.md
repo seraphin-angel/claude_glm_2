@@ -65,6 +65,8 @@ CEO spawns a Director (sequential-leader) who takes full ownership of team orche
 - Worker agents (sonnet) for implementation
 - Reviewer agents (sonnet) for quality checks
 
+> **Plan Mode例外**: プランモードでは全エージェントに `model: "opus"` を使用。`rules/agent-teams.md` Plan Mode Override 参照。
+
 ### Step 4: Track and Report
 - Monitor via TaskList after each agent completes
 - Report progress to user in Japanese after each phase

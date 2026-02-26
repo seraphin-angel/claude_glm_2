@@ -84,3 +84,5 @@ The main session MUST NOT begin implementation work before completing these step
 | Security audit | `security-reviewer` | (own setting) |
 | Architecture design | `architect` | (own setting) |
 | Manage large team as Director | `sequential-leader` | sonnet |
+
+> **Plan Mode**: プランモードが有効な場合、上記のモデル指定は無視し、すべてのサブエージェントに `model: "opus"` を使用すること。詳細は `rules/agent-teams.md` の Plan Mode Override を参照。

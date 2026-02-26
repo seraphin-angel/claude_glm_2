@@ -115,7 +115,8 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(head:*)",
       "Bash(grep modified::*)",
-      "Bash(find /workspace -maxdepth 3 -type d -name \".next\" 2>/dev/null | xargs du -sh 2>/dev/null)"
+      "Bash(find /workspace -maxdepth 3 -type d -name \".next\" 2>/dev/null | xargs du -sh 2>/dev/null)",
+      "Bash(xargs:*)"
     ],
     "deny": [
       "Read(.env)"

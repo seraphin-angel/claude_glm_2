@@ -17,6 +17,12 @@
 - Maximum reasoning requirements
 - Research and analysis tasks
 
+### Plan Mode Model Policy
+
+プランモードでは上記のモデル選択戦略は適用されない。
+計画立案フェーズでは探索・設計の質が最優先のため、**すべてのサブエージェントに `model: "opus"` を指定する**。
+コスト効率は実装フェーズで考慮する。
+
 ## Context Window Management
 
 Avoid last 20% of context window for:

@@ -22,6 +22,19 @@ When creating Agent Teams, always assign models via the `model` parameter:
 | Code Reviewer | `code-reviewer` | **sonnet** | Sufficient quality for review and testing |
 | Researcher | `Explore` | **haiku** | Lightweight and cost-efficient for read-only tasks |
 
+## Plan Mode Override
+
+プランモード（計画立案フェーズ）が有効な場合、上記のモデル階層は適用されない。
+プランモードでは**すべてのサブエージェントに `model: "opus"` を指定すること**。
+
+| Role | subagent_type | model (Plan Mode) | Rationale |
+|------|--------------|-------------------|-----------|
+| Researcher | `Explore` | **opus** | 計画立案時は探索の質が最優先 |
+| Planner | `Plan` | **opus** | 設計判断に最高品質の推論が必要 |
+| その他全エージェント | any | **opus** | プランモードでは品質 > コスト |
+
+> 実装モード（通常モード）に戻った場合は、通常のモデル階層に従うこと。
+
 ## Rules
 
 1. **Never omit the `model` parameter** when spawning team members via the Task tool
