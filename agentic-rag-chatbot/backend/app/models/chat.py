@@ -15,6 +15,9 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000, description="ユーザーメッセージ")
     thread_id: UUID | None = Field(None, description="既存スレッドID（新規の場合はNone）")
     image_data: str | None = Field(None, description="Base64エンコードされた画像データ")
+    # P3-53: マルチチャネル対応
+    channel: str | None = Field(None, max_length=64, description="チャネルタイプ（slack/line/email）")
+    channel_thread_id: str | None = Field(None, max_length=256, description="チャネル固有のスレッドID")
 
     @field_validator("image_data")
     @classmethod
@@ -27,7 +30,7 @@ class ChatRequest(BaseModel):
         try:
             decoded = base64.b64decode(v)
         except Exception:
-            raise ValueError("無効なBase64エンコーディングです")
+            raise ValueError("無効なBase64エンコードです")
         
         if len(decoded) > MAX_IMAGE_SIZE_BYTES:
             raise ValueError("画像サイズが大きすぎます（最大10MB）")
@@ -53,7 +56,7 @@ class ImageUploadRequest(BaseModel):
         try:
             decoded = base64.b64decode(v)
         except Exception:
-            raise ValueError("無効なBase64エンコーディングです")
+            raise ValueError("無効なBase64エンコードです")
         
         if len(decoded) > MAX_IMAGE_SIZE_BYTES:
             raise ValueError("画像サイズが大きすぎます（最大10MB）")

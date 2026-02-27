@@ -59,6 +59,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none';"
+        )
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
         return response
 
 
@@ -112,9 +125,17 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
             raise
 
+    SENSITIVE_QUERY_KEYS = frozenset(["token", "api_key", "secret", "password", "key"])
+
     async def _log_request(self, request: Request) -> None:
         """Log incoming request details."""
-        query_params = dict(request.query_params) if request.query_params else None
+        if request.query_params:
+            query_params = {
+                k: self._mask_sensitive(v) if k.lower() in self.SENSITIVE_QUERY_KEYS else v
+                for k, v in request.query_params.items()
+            }
+        else:
+            query_params = None
         logger.info(
             "request_started",
             method=request.method,
@@ -171,6 +192,10 @@ def create_app() -> FastAPI:
     from app.middleware.tenant import TenantMiddleware
     app.add_middleware(TenantMiddleware)
 
+    # P3-54: ユーザーコンテキストミドルウェアを追加
+    from app.middleware.user_context import UserContextMiddleware
+    app.add_middleware(UserContextMiddleware)
+
     from app.api import (
         admin_router,
         chat_router,
@@ -182,7 +207,9 @@ def create_app() -> FastAPI:
         integrations_router,
         knowledge_router,
         tenant_router,
+        user_router,
     )
+    from app.api.channels import router as channels_router
 
     app.include_router(health_router)
     app.include_router(chat_router)
@@ -191,9 +218,11 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(faq_router)
     app.include_router(tenant_router)
+    app.include_router(user_router)
     app.include_router(gdpr_router)
     app.include_router(integrations_router)
     app.include_router(guardrails_router, prefix="/api/v1")
+    app.include_router(channels_router, prefix="/api")
 
     return app
 

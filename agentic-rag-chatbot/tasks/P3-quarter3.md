@@ -7,7 +7,7 @@
 
 | 完了 | 進行中 | 未着手 | ブロック | 進捗率 |
 |------|--------|--------|----------|--------|
-| 6 | 0 | 3 | 0 | 67% |
+| 8 | 0 | 1 | 0 | 89% |
 
 ---
 
@@ -211,24 +211,40 @@
 | カテゴリ | 製品戦略 |
 | 難易度 | 中〜高 |
 | 対象ファイル | 新規: チャネルアダプター |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** `ChatRequest` に `channel` フィールドを追加し、LINE / Slack / メールの Webhook アダプターを構築。
 
 **受け入れ条件:**
-- [ ] `ChatRequest` に `channel` フィールドを追加
-- [ ] チャネルアダプターのインターフェース設計
-- [ ] Slack Webhook アダプターの実装
-- [ ] LINE Messaging API アダプターの実装
-- [ ] メールアダプターの実装（受信: IMAP/Webhook, 送信: SMTP）
-- [ ] チャネル間の会話継続対応
+- [x] `ChatRequest` に `channel` フィールドを追加
+- [x] チャネルアダプターのインターフェース設計
+- [x] Slack Webhook アダプターの実装
+- [x] LINE Messaging API アダプターの実装
+- [x] メールアダプターの実装（受信: IMAP/Webhook, 送信: SMTP）
+- [x] チャネル間の会話継続対応
 
 **備考:**
 ```
+テスト: 50件（全パス）
+カバレッジ: 87%
+実装ファイル:
+- backend/app/channels/__init__.py（モジュール公開）
+- backend/app/channels/models.py（ChannelType, ChannelMessage, ThreadMapping）
+- backend/app/channels/base.py（BaseChannelAdapter 抽象基底クラス）
+- backend/app/channels/mock_adapter.py（テスト用モックアダプター）
+- backend/app/channels/slack_adapter.py（Slack Webhook アダプター）
+- backend/app/channels/line_adapter.py（LINE Messaging API アダプター）
+- backend/app/channels/email_adapter.py（メールアダプター）
+- backend/app/services/channel_service.py（チャネル管理サービス、シングルトン）
+- backend/app/api/channels.py（Webhook API エンドポイント）
+- backend/tests/test_channels.py
+変更ファイル:
+- backend/app/models/chat.py（channel, channel_thread_id フィールド追加）
+- backend/app/main.py（channels ルーター登録）
 ```
 
 ---
@@ -241,24 +257,37 @@
 | カテゴリ | 製品戦略 |
 | 難易度 | 中 |
 | 対象ファイル | エージェント, ユーザー管理 |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-26 |
+| 完了日 | 2026-02-26 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** `user_id` による会話履歴の個人別蓄積。ユーザーのプラン情報に基づくカスタマイズ回答。
 
 **受け入れ条件:**
-- [ ] ユーザープロファイルの管理（プラン、利用履歴）
-- [ ] 個人別会話履歴の蓄積
-- [ ] ユーザー属性に基づくコンテキスト付加
-- [ ] 過去の質問パターンからの FAQ 先出し
+- [x] ユーザープロファイルの管理（プラン、利用履歴）
+- [x] 個人別会話履歴の蓄積
+- [x] ユーザー属性に基づくコンテキスト付加
+- [x] 過去の質問パターンからの FAQ 先出し
 
 **依存:** P0-10（JWT認証）, P3-48（マルチテナント）
 
 **備考:**
 ```
+テスト: 42件（全パス）
+カバレッジ: モデル99%, サービス89%
+実装ファイル:
+- backend/app/models/user.py（UserPlan, ConversationRecord, UserProfile）
+- backend/app/middleware/user_context.py（UserContextMiddleware、ContextVar）
+- backend/app/services/user_service.py（UserService シングルトン）
+- backend/app/api/user.py（/api/users/me エンドポイント）
+- backend/tests/test_user.py
+変更ファイル:
+- backend/app/auth/jwt_handler.py（get_user_id_from_payload, verify_token_and_get_user_id）
+- backend/app/agents/prompts.py（get_personalized_system_prompt）
+- backend/app/services/faq_service.py（get_personalized_faqs, get_recommended_faqs）
+- backend/app/main.py（UserContextMiddleware追加、user_router登録）
 ```
 
 ---

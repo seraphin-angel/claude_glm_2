@@ -161,8 +161,15 @@ def _get_prompt_service():
     try:
         from app.services.prompt_service import PromptService
         return PromptService.get_instance()
+    except ImportError as e:
+        logger.warning("PromptService module not available: %s", e)
+        return None
     except Exception as e:
-        logger.warning(f"Failed to get PromptService: {e}")
+        logger.error(
+            "Failed to get PromptService: %s",
+            type(e).__name__,
+            exc_info=True,
+        )
         return None
 
 
@@ -180,7 +187,7 @@ def get_system_prompt() -> str:
         if prompt:
             return prompt.content
 
-    logger.info("Using fallback system prompt")
+    logger.warning("Using fallback system prompt")
     return _FALLBACK_SYSTEM_PROMPT
 
 
@@ -204,7 +211,7 @@ def get_category_prompt(category: str) -> str:
             return prompt.content
 
     # フォールバック
-    logger.info(f"Using fallback prompt for category: {category}")
+    logger.warning(f"Using fallback prompt for category: {category}")
     return _FALLBACK_CATEGORY_PROMPTS.get(category, "")
 
 
@@ -222,7 +229,7 @@ def get_escalation_criteria() -> str:
         if prompt:
             return prompt.content
 
-    logger.info("Using fallback escalation criteria prompt")
+    logger.warning("Using fallback escalation criteria prompt")
     return _FALLBACK_ESCALATION_CRITERIA
 
 
@@ -232,3 +239,93 @@ def get_escalation_criteria() -> str:
 CATEGORY_PROMPTS = _FALLBACK_CATEGORY_PROMPTS
 ESCALATION_CRITERIA = _FALLBACK_ESCALATION_CRITERIA
 PRODUCT_SUPPORT_SYSTEM_PROMPT = _FALLBACK_SYSTEM_PROMPT
+
+
+# ============== P3-54: パーソナライゼーション機能 ==============
+
+def get_personalized_system_prompt(user_profile=None) -> str:
+    """ユーザープロファイルに基づくパーソナライズされたシステムプロンプトを取得
+
+    Args:
+        user_profile: UserProfile オブジェクト（オプション）
+            - plan: ユーザープラン（free/paid）
+            - preferred_categories: ユーザーがよく質問するカテゴリ
+            - conversations: 過去の会話履歴
+
+    Returns:
+        パーソナライズされたシステムプロンプト
+    """
+    base_prompt = get_system_prompt()
+
+    if user_profile is None:
+        return base_prompt
+
+    # パーソナライゼーション情報を構築
+    personalization_parts = []
+
+    # プランに基づく情報
+    plan = getattr(user_profile, "plan", None)
+    if plan:
+        plan_str = plan.value if hasattr(plan, "value") else str(plan)
+        if plan_str == "free":
+            personalization_parts.append("""
+## ユーザープラン情報
+このユーザーは無料プランを利用中です。
+- 一部の高度な機能は制限されている場合があります
+- プランのアップグレードを提案する場合は、丁寧に案内してください
+""")
+        elif plan_str == "paid":
+            personalization_parts.append("""
+## ユーザープラン情報
+このユーザーは有料プランを利用中です。
+- すべての機能を利用可能です
+- 高度なサポートを提供してください
+""")
+
+    # 過去の質問カテゴリに基づく情報
+    preferred_categories = getattr(user_profile, "preferred_categories", None)
+    if preferred_categories and len(preferred_categories) > 0:
+        categories_str = "、".join(preferred_categories)
+        personalization_parts.append(f"""
+## ユーザーの関心分野
+このユーザーは以下の分野について頻繁に質問しています: {categories_str}
+- これらの分野に関する質問には特に丁寧に回答してください
+- 関連する情報があれば積極的に提供してください
+""")
+
+    # パーソナライゼーション情報を追加
+    if personalization_parts:
+        personalization_context = "\n".join(personalization_parts)
+        return f"{base_prompt}\n\n---\n# パーソナライゼーション情報{personalization_context}"
+
+    return base_prompt
+
+
+def get_user_context_summary(user_profile=None) -> str:
+    """ユーザーのコンテキスト要約を取得
+
+    Args:
+        user_profile: UserProfile オブジェクト
+
+    Returns:
+        ユーザーコンテキストの要約文字列
+    """
+    if user_profile is None:
+        return ""
+
+    parts = []
+
+    plan = getattr(user_profile, "plan", None)
+    if plan:
+        plan_str = plan.value if hasattr(plan, "value") else str(plan)
+        parts.append(f"プラン: {plan_str}")
+
+    preferred_categories = getattr(user_profile, "preferred_categories", None)
+    if preferred_categories and len(preferred_categories) > 0:
+        parts.append(f"関心分野: {', '.join(preferred_categories)}")
+
+    conversations = getattr(user_profile, "conversations", None)
+    if conversations:
+        parts.append(f"過去の会話数: {len(conversations)}")
+
+    return " | ".join(parts) if parts else ""

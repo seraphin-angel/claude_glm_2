@@ -191,3 +191,141 @@ class TestGetAllCategories:
         empty_file.write_text('{"faqs": []}', encoding="utf-8")
         service = FAQService(faq_path=str(empty_file))
         assert service.get_all_categories() == []
+
+
+# ---------------------------------------------------------------------------
+# HIGH問題修正テスト（#10: faq_service 例外ハンドリング改善）
+# ---------------------------------------------------------------------------
+
+class TestFAQServiceExceptionHandling:
+    """FAQ サービスの例外ハンドリングテスト"""
+
+    @pytest.fixture(autouse=True)
+    def reset_service(self):
+        from app.services.faq_service import FAQService
+        FAQService.reset_instance()
+        yield
+        FAQService.reset_instance()
+
+    def test_load_with_json_decode_error_logs_error_level(self, tmp_path):
+        """JSONDecodeError時にerrorレベルでログを記録する"""
+        import logging
+        from unittest.mock import patch, MagicMock
+
+        invalid_json_file = tmp_path / "faqs.json"
+        invalid_json_file.write_text("{ invalid json }", encoding="utf-8")
+
+        with patch("app.services.faq_service.logger") as mock_logger:
+            from app.services.faq_service import FAQService
+            service = FAQService(faq_path=str(invalid_json_file))
+
+        # errorレベルでログが記録される
+        mock_logger.error.assert_called_once()
+        # FAQが空になる
+        assert service.get_top_questions() == []
+
+    def test_load_with_os_error_logs_error_level(self, tmp_path):
+        """OSError時にerrorレベルでログを記録する"""
+        from unittest.mock import patch, MagicMock
+
+        non_existent_path = tmp_path / "nonexistent" / "faqs.json"
+        # ファイルを作成してから権限を削除してOSErrorを起こす
+        non_existent_path.parent.mkdir(parents=True)
+        non_existent_path.write_text('{"faqs":[]}', encoding="utf-8")
+
+        with patch.object(
+            non_existent_path.__class__,
+            "read_text",
+            side_effect=OSError("Permission denied"),
+        ):
+            with patch("app.services.faq_service.logger") as mock_logger:
+                from app.services.faq_service import FAQService
+                service = FAQService(faq_path=str(non_existent_path))
+
+        mock_logger.error.assert_called_once()
+        assert service.get_top_questions() == []
+
+
+# ---------------------------------------------------------------------------
+# Gap-1: get_recommended_faqs / get_personalized_faqs テスト
+# ---------------------------------------------------------------------------
+
+class TestGetPersonalizedFaqs:
+    """get_personalized_faqs のテスト"""
+
+    @pytest.fixture
+    def faq_service(self, sample_faq_data: Path) -> "FAQService":
+        from app.services.faq_service import FAQService
+        return FAQService(faq_path=str(sample_faq_data))
+
+    def test_user_profile_none_falls_back_to_top_questions(self, faq_service) -> None:
+        """user_profile=None の場合は get_top_questions にフォールバック"""
+        result = faq_service.get_personalized_faqs(user_profile=None, limit=3)
+        top = faq_service.get_top_questions(limit=3)
+        assert result == top
+
+    def test_empty_preferred_categories_falls_back_to_top_questions(self, faq_service) -> None:
+        """preferred_categories が空の場合はフォールバック"""
+        class FakeProfile:
+            preferred_categories = ()
+
+        result = faq_service.get_personalized_faqs(user_profile=FakeProfile(), limit=3)
+        top = faq_service.get_top_questions(limit=3)
+        assert result == top
+
+    def test_category_match_prioritized(self, faq_service) -> None:
+        """カテゴリマッチが優先される"""
+        all_faqs = faq_service.get_top_questions(limit=100)
+        if not all_faqs:
+            pytest.skip("No FAQs available for this test")
+
+        # 最初のFAQのカテゴリを preferred_categories に設定
+        first_category = all_faqs[0].get("category", "")
+        if not first_category:
+            pytest.skip("FAQ has no category")
+
+        class FakeProfile:
+            preferred_categories = (first_category,)
+
+        result = faq_service.get_personalized_faqs(user_profile=FakeProfile(), limit=10)
+        # 結果の先頭はカテゴリマッチが来るはず
+        if result:
+            # カテゴリが一致するFAQが存在する場合、それが含まれている
+            categories = [f.get("category") for f in result]
+            assert first_category in categories
+
+    def test_limit_respected(self, faq_service) -> None:
+        """limit が守られる"""
+        class FakeProfile:
+            preferred_categories = ("general",)
+
+        result = faq_service.get_personalized_faqs(user_profile=FakeProfile(), limit=2)
+        assert len(result) <= 2
+
+
+class TestGetRecommendedFaqs:
+    """get_recommended_faqs のテスト"""
+
+    @pytest.fixture
+    def faq_service(self, sample_faq_data: Path) -> "FAQService":
+        from app.services.faq_service import FAQService
+        return FAQService(faq_path=str(sample_faq_data))
+
+    def test_user_profile_none_returns_results(self, faq_service) -> None:
+        """user_profile=None でも結果が返る"""
+        result = faq_service.get_recommended_faqs(user_profile=None, limit=3)
+        assert isinstance(result, list)
+
+    def test_limit_respected(self, faq_service) -> None:
+        """limit が守られる"""
+        result = faq_service.get_recommended_faqs(user_profile=None, limit=2)
+        assert len(result) <= 2
+
+    def test_with_page_url(self, faq_service) -> None:
+        """page_url を指定すると結果が返る"""
+        result = faq_service.get_recommended_faqs(
+            user_profile=None,
+            page_url="/some/page",
+            limit=5,
+        )
+        assert isinstance(result, list)

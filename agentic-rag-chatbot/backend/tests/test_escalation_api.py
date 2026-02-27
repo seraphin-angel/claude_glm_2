@@ -121,7 +121,7 @@ class TestGetEscalations:
                 "/api/admin/escalations",
                 headers={"Authorization": "Bearer invalid.token.here"},
             )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 
 @pytest.mark.asyncio

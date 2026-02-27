@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.config.settings import get_settings
 
@@ -32,8 +32,52 @@ async def verify_token(
             algorithms=[settings.jwt_algorithm],
         )
         return payload
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="トークンの有効期限が切れています",
+        )
     except JWTError:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="トークンが無効です",
         )
+
+
+def get_user_id_from_payload(payload: dict) -> str | None:
+    """ペイロードからユーザーIDを取得する。
+
+    JWT標準の `sub` クレームのみを参照する。
+    他のフィールド（user_id, userId, id など）は無視する。
+
+    Args:
+        payload: JWT ペイロード
+
+    Returns:
+        ユーザーID（`sub` クレームが存在しない場合はNone）
+    """
+    sub = payload.get("sub")
+    if sub is not None:
+        return str(sub)
+    return None
+
+
+async def verify_token_and_get_user_id(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """JWT トークンを検証し、ユーザーIDを返す。
+
+    Returns:
+        ユーザーID
+
+    Raises:
+        HTTPException: トークンが無効、またはユーザーIDが含まれていない場合
+    """
+    payload = await verify_token(credentials)
+    user_id = get_user_id_from_payload(payload)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="トークンにユーザーIDが含まれていません",
+        )
+    return user_id

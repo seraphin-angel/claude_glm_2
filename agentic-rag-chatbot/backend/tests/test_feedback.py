@@ -174,7 +174,7 @@ class TestFeedbackApiEndpoints:
                 headers=headers,
             )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     async def test_submit_feedback_invalid_rating(self):
         """不正な rating で 422 が返る"""

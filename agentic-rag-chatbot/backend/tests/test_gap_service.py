@@ -155,7 +155,7 @@ class TestAdminApiEndpoints:
         ) as client:
             response = await client.get("/api/admin/knowledge-gaps", headers=headers)
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     async def test_get_knowledge_gaps_returns_recorded_gaps(self):
         """記録されたギャップがエンドポイントから取得できる"""

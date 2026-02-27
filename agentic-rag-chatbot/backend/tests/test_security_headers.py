@@ -44,3 +44,13 @@ class TestSecurityHeaders:
         assert response.headers.get("x-content-type-options") == "nosniff"
         assert response.headers.get("x-frame-options") == "DENY"
         assert response.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
+
+    async def test_health_has_content_security_policy(self, client: AsyncClient):
+        """GET /api/health に Content-Security-Policy が付与されること（#17）"""
+        response = await client.get("/api/health")
+        assert "content-security-policy" in response.headers
+
+    async def test_health_has_strict_transport_security(self, client: AsyncClient):
+        """GET /api/health に Strict-Transport-Security が付与されること（#17）"""
+        response = await client.get("/api/health")
+        assert "strict-transport-security" in response.headers
