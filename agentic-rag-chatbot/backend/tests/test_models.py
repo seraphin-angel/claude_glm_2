@@ -301,3 +301,33 @@ class TestAgentState:
         }
         assert len(state["search_results"]) == 2
         assert state["search_results"][0]["id"] == "doc-1"
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM問題修正テスト（#15: ChatRequest.channel）
+# ---------------------------------------------------------------------------
+
+class TestChatRequestChannelValidation:
+    """ChatRequest.channel バリデーションテスト（#15）"""
+
+    def test_channel_with_normal_value_is_valid(self):
+        """通常のチャネル値は有効"""
+        from app.models.chat import ChatRequest
+        request = ChatRequest(message="test", channel="slack")
+        assert request.channel == "slack"
+
+    def test_channel_too_long_is_rejected(self):
+        """チャネル値が長すぎる場合はバリデーションエラー"""
+        from pydantic import ValidationError
+        from app.models.chat import ChatRequest
+        try:
+            ChatRequest(message="test", channel="a" * 100)
+            assert False, "Should raise ValidationError"
+        except ValidationError:
+            pass
+
+    def test_channel_none_is_valid(self):
+        """チャネルがNoneの場合は有効"""
+        from app.models.chat import ChatRequest
+        request = ChatRequest(message="test", channel=None)
+        assert request.channel is None

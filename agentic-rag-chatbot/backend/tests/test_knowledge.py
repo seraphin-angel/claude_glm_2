@@ -223,13 +223,13 @@ class TestKnowledgeApiListDocuments:
         assert response.status_code == 401
 
     async def test_list_documents_invalid_token(self):
-        """無効なトークンで 403 が返る"""
+        """無効なトークンで 401 が返る"""
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 "/api/admin/knowledge",
                 headers={"Authorization": "Bearer invalid.token.here"},
             )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     async def test_list_documents_category_filter(self, auth_headers, mock_vector_store, mock_bm25_store):
         """category クエリパラメータでフィルタリングできる"""
@@ -377,10 +377,10 @@ class TestKnowledgeApiDeleteDocument:
         assert response.status_code == 401
 
     async def test_delete_document_invalid_token(self):
-        """無効なトークンで 403 が返る"""
+        """無効なトークンで 401 が返る"""
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.delete(
                 "/api/admin/knowledge/doc-001",
                 headers={"Authorization": "Bearer invalid.token.here"},
             )
-        assert response.status_code == 403
+        assert response.status_code == 401

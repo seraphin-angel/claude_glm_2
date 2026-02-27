@@ -45,7 +45,7 @@ class TestVerifyToken:
 
         with pytest.raises(HTTPException) as exc_info:
             await verify_token(credentials)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 401
 
     async def test_verify_invalid_token(self):
         """不正なトークンで HTTPException が発生すること"""
@@ -55,7 +55,7 @@ class TestVerifyToken:
 
         with pytest.raises(HTTPException) as exc_info:
             await verify_token(credentials)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 401
 
     async def test_verify_tampered_token(self):
         """改竄されたトークンで HTTPException が発生すること"""
@@ -67,4 +67,4 @@ class TestVerifyToken:
 
         with pytest.raises(HTTPException) as exc_info:
             await verify_token(credentials)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 401

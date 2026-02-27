@@ -264,14 +264,14 @@ class TestFAQInvalidToken:
         headers = {"Authorization": f"Bearer {expired_token}"}
 
         response = client.get("/api/faq/suggestions", headers=headers)
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_malformed_token_returns_403(self, client: TestClient) -> None:
         """不正なフォーマットのトークンでアクセスすると403"""
         headers = {"Authorization": "Bearer invalid.token.format"}
 
         response = client.get("/api/faq/suggestions", headers=headers)
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_empty_token_returns_401(self, client: TestClient) -> None:
         """空のトークンでアクセスすると401（HTTPBearerの仕様）"""

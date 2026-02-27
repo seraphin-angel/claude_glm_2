@@ -8,6 +8,7 @@ from app.api.health import router as health_router
 from app.api.integrations import router as integrations_router
 from app.api.knowledge import router as knowledge_router
 from app.api.tenant import router as tenant_router
+from app.api.user import router as user_router
 
 __all__ = [
     "admin_router",
@@ -20,4 +21,5 @@ __all__ = [
     "integrations_router",
     "knowledge_router",
     "tenant_router",
+    "user_router",
 ]
