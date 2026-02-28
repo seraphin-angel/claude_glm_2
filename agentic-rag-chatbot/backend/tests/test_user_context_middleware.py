@@ -1,14 +1,11 @@
 """UserContextMiddleware のテスト — X-User-IDヘッダー偽装修正"""
 
-import os
-
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
 
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-pytest-only")
-os.environ.setdefault("DEBUG_MODE", "true")
+# JWT_SECRET_KEY, DEBUG_MODE は conftest.py で一元管理
 
 from app.auth.jwt_handler import create_access_token  # noqa: E402
 from app.middleware.user_context import (  # noqa: E402

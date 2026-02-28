@@ -7,7 +7,7 @@
 
 | 完了 | 進行中 | 未着手 | ブロック | 進捗率 |
 |------|--------|--------|----------|--------|
-| 8 | 0 | 1 | 0 | 89% |
+| 9 | 0 | 0 | 0 | 100% |
 
 ---
 
@@ -300,23 +300,36 @@
 | カテゴリ | 製品戦略 |
 | 難易度 | 高 |
 | 対象ファイル | 新規: A/B テストフレームワーク |
-| ステータス | `[ ]` 未着手 |
-| 着手日 | - |
-| 完了日 | - |
-| 担当 | - |
+| ステータス | `[x]` 完了 |
+| 着手日 | 2026-02-27 |
+| 完了日 | 2026-02-27 |
+| 担当 | Claude Code |
 | 関連PR | - |
 
 **概要:** プロンプト・検索戦略・UI の A/B テスト基盤。実験管理と結果分析。
 
 **受け入れ条件:**
-- [ ] 実験定義のデータモデル（バリアント、割り当て、指標）
-- [ ] ユーザーのバリアント割り当てロジック
-- [ ] 指標収集（回答品質、フィードバック、解決率）
-- [ ] 実験結果の統計分析とレポート
-- [ ] 管理 UI での実験作成・停止・結果確認
+- [x] 実験定義のデータモデル（バリアント、割り当て、指標）
+- [x] ユーザーのバリアント割り当てロジック
+- [x] 指標収集（回答品質、フィードバック、解決率）
+- [x] 実験結果の統計分析とレポート
+- [x] 管理 UI での実験作成・停止・結果確認
 
 **備考:**
 ```
+テスト: 78件（全パス）
+カバレッジ: モデル97%, サービス84-99%, API78%
+実装ファイル:
+- backend/app/models/experiment.py（ExperimentStatus, MetricType, Variant, Experiment, ExperimentMetric）
+- backend/app/services/experiment_service.py（実験 CRUD、バリアント割り当て）
+- backend/app/services/metrics_service.py（指標収集・集計）
+- backend/app/services/statistics_service.py（ウェルチt検定、信頼区間、Cohen's d）
+- backend/app/api/experiments.py（/api/experiments エンドポイント）
+- backend/tests/test_experiment_models.py（25テスト）
+- backend/tests/test_experiment_service.py（18テスト）
+- backend/tests/test_metrics_service.py（12テスト）
+- backend/tests/test_statistics_service.py（16テスト）
+- backend/tests/test_experiment_api.py（7テスト）
 ```
 
 ---

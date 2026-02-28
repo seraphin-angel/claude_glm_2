@@ -197,6 +197,7 @@ def create_app() -> FastAPI:
     app.add_middleware(UserContextMiddleware)
 
     from app.api import (
+        experiments_router,
         admin_router,
         chat_router,
         faq_router,
@@ -223,6 +224,7 @@ def create_app() -> FastAPI:
     app.include_router(integrations_router)
     app.include_router(guardrails_router, prefix="/api/v1")
     app.include_router(channels_router, prefix="/api")
+    app.include_router(experiments_router)
 
     return app
 
