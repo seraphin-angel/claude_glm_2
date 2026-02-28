@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import uuid
+from dataclasses import dataclass, field
 
 from langgraph.types import Command
 
@@ -9,6 +10,14 @@ from app.agents.agent import get_agent
 from app.models.messages import SourceDocument, StreamEvent, StreamEventType
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StreamState:
+    """ストリーミング処理の状態を管理するデータクラス"""
+
+    full_response: str = ""
+    step_count: int = 0
 
 
 def _extract_source_documents(tool_output: dict) -> list[SourceDocument] | None:
@@ -112,8 +121,7 @@ class ChatService:
         event: dict,
         queue: asyncio.Queue,
         thread_id: str,
-        full_response: list[str],
-        step_count: list[int],
+        state: StreamState,
     ) -> bool:
         """イベントを処理する。MAX_STEPS超過時はTrueを返す。"""
         kind = event.get("event", "")
@@ -122,7 +130,7 @@ class ChatService:
             chunk = event.get("data", {}).get("chunk")
             if chunk and hasattr(chunk, "content") and chunk.content:
                 if not chunk.tool_call_chunks:
-                    full_response[0] += chunk.content
+                    state.full_response += chunk.content
                     await queue.put(StreamEvent(
                         type=StreamEventType.TOKEN,
                         content=chunk.content,
@@ -161,8 +169,8 @@ class ChatService:
                 type=StreamEventType.TOOL_END,
                 tool_name=tool_name,
             ))
-            step_count[0] += 1
-            if step_count[0] >= self.MAX_STEPS:
+            state.step_count += 1
+            if state.step_count >= self.MAX_STEPS:
                 logger.warning(
                     "Agent exceeded max steps (%d) for thread %s",
                     self.MAX_STEPS,
@@ -185,19 +193,18 @@ class ChatService:
     ) -> None:
         """イベントストリームを処理し、完了・エラーイベントを送出する共通ロジック。"""
         try:
-            full_response = [""]
-            step_count = [0]
+            state = StreamState()
             async for event in event_stream:
                 should_break = await self._process_event(
-                    event, queue, thread_id, full_response, step_count,
+                    event, queue, thread_id, state,
                 )
                 if should_break:
                     break
 
-            if full_response[0]:
+            if state.full_response:
                 await queue.put(StreamEvent(
                     type=StreamEventType.MESSAGE_COMPLETE,
-                    content=full_response[0],
+                    content=state.full_response,
                 ))
 
         except Exception as e:

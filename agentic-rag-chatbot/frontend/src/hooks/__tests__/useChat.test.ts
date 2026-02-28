@@ -196,8 +196,9 @@ describe('useChat', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         '[useChat]',
         expect.objectContaining({
-          message: 'Unexpected error type',
-          error: '[object Object]',
+          message: 'Send message error',
+          error: '予期しないエラーが発生しました',
+          errorType: 'object',
         }),
       )
       expect(result.current.error).toBe('予期しないエラーが発生しました')

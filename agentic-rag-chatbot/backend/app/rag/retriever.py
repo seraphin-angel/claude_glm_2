@@ -11,6 +11,39 @@ logger = logging.getLogger(__name__)
 _RRF_K = 60
 
 
+def _calculate_rrf_scores(
+    results_list: list[list[dict]],
+    weights: list[float] | None = None,
+    k: int = _RRF_K,
+) -> tuple[dict[str, float], dict[str, dict]]:
+    """複数の検索結果を RRF (Reciprocal Rank Fusion) でマージする。
+
+    Args:
+        results_list: 検索結果のリストのリスト
+        weights: 各検索結果の重み（None の場合は均等重み）
+        k: RRF のパラメータ（デフォルト60）
+
+    Returns:
+        (rrf_scores, doc_map) のタプル
+        - rrf_scores: ドキュメントID -> RRFスコア
+        - doc_map: ドキュメントID -> ドキュメントデータ
+    """
+    rrf_scores: dict[str, float] = {}
+    doc_map: dict[str, dict] = {}
+
+    if weights is None:
+        weights = [1.0 / len(results_list)] * len(results_list)
+
+    for results, weight in zip(results_list, weights):
+        for rank, doc in enumerate(results):
+            doc_id = doc["id"]
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + weight * (1.0 / (k + rank + 1))
+            if doc_id not in doc_map:
+                doc_map[doc_id] = doc
+
+    return rrf_scores, doc_map
+
+
 class CrossEncoderReranker:
     """Cross-Encoder モデルを使用したリランキングクラス。
 
@@ -156,24 +189,21 @@ def hybrid_retrieve(
     else:
         bm25_results = BM25Store.get_instance().search(query, top_k=settings.bm25_top_k)
 
-        rrf_scores: dict[str, float] = {}
-        doc_map: dict[str, dict] = {}
+        # BM25結果に必要なフィールドを追加
+        bm25_results_formatted = [
+            {
+                "content": doc["content"],
+                "metadata": doc["metadata"],
+                "relevance_score": 0.0,
+                "id": doc["id"],
+            }
+            for doc in bm25_results
+        ]
 
-        for rank, doc in enumerate(vector_results):
-            doc_id = doc["id"]
-            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + alpha * (1.0 / (_RRF_K + rank + 1))
-            doc_map[doc_id] = doc
-
-        for rank, doc in enumerate(bm25_results):
-            doc_id = doc["id"]
-            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 - alpha) * (1.0 / (_RRF_K + rank + 1))
-            if doc_id not in doc_map:
-                doc_map[doc_id] = {
-                    "content": doc["content"],
-                    "metadata": doc["metadata"],
-                    "relevance_score": 0.0,
-                    "id": doc_id,
-                }
+        rrf_scores, doc_map = _calculate_rrf_scores(
+            [vector_results, bm25_results_formatted],
+            weights=[alpha, 1.0 - alpha],
+        )
 
         sorted_ids = sorted(rrf_scores, key=lambda doc_id: rrf_scores[doc_id], reverse=True)[:retrieval_k]
 
@@ -218,17 +248,8 @@ def retrieve_with_multi_query(
         results = retrieve_documents(query=q, n_results=n_results, category=category)
         all_results.append(results)
 
-    # RRF で結果を統合
-    rrf_scores: dict[str, float] = {}
-    doc_map: dict[str, dict] = {}
-
-    for results in all_results:
-        for rank, doc in enumerate(results):
-            doc_id = doc["id"]
-            # 各クエリの結果に均等な重みを適用
-            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 / (_RRF_K + rank + 1))
-            if doc_id not in doc_map:
-                doc_map[doc_id] = doc
+    # RRF で結果を統合（均等重み）
+    rrf_scores, doc_map = _calculate_rrf_scores(all_results)
 
     # スコアでソートして上位 n_results を返す
     sorted_ids = sorted(rrf_scores, key=lambda doc_id: rrf_scores[doc_id], reverse=True)[:n_results]
@@ -277,7 +298,7 @@ def retrieve_with_strategy(
             - "standard": 通常のベクトル検索
             - "multi_query": Multi-Query 拡張検索
             - "hyde": HyDE 仮説回答検索
-            - "hybrid": Multi-Query + RRF 統合（将来的に BM25 と組み合わせ可能）
+            - "hybrid": hybrid_retrieve を使用した BM25 + Vector + RRF 統合検索
 
     Returns:
         {"content": str, "metadata": dict, "relevance_score": float, "id": str} のリスト

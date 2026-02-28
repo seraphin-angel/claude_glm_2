@@ -5,6 +5,15 @@ import type { SSEConnection } from '@/lib/sse'
 import { createSSEConnection, closeSSEConnection } from '@/lib/sse'
 import { logger } from '@/lib/logger'
 
+/**
+ * エラーオブジェクトからユーザー表示用のメッセージを抽出する
+ */
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  return '予期しないエラーが発生しました'
+}
+
 interface ToolHistoryEntry {
   readonly name: string
   readonly status: 'running' | 'done'
@@ -199,22 +208,13 @@ export function useChat(): UseChatReturn {
         updateStatus('error')
       }
     } catch (err) {
-      let errorMessage: string
-      if (err instanceof Error) {
-        errorMessage = err.message
-        logger.error('useChat', {
-          message: 'Send message error',
-          error: err.message,
-          stack: err.stack,
-          threadId: threadIdRef.current,
-        })
-      } else if (typeof err === 'string') {
-        errorMessage = err
-        logger.error('useChat', { message: 'Unexpected error type', error: err })
-      } else {
-        errorMessage = '予期しないエラーが発生しました'
-        logger.error('useChat', { message: 'Unexpected error type', error: String(err) })
-      }
+      const errorMessage = getErrorMessage(err)
+      logger.error('useChat', {
+        message: 'Send message error',
+        error: errorMessage,
+        errorType: err instanceof Error ? err.constructor.name : typeof err,
+        threadId: threadIdRef.current,
+      })
       setError(errorMessage)
       updateStatus('error')
     }
@@ -285,21 +285,13 @@ export function useChat(): UseChatReturn {
         updateStatus('error')
       }
     } catch (err) {
-      let errorMessage: string
-      if (err instanceof Error) {
-        errorMessage = err.message
-        logger.error('useChat', {
-          message: 'RespondToHITL error',
-          error: err.message,
-          stack: err.stack,
-          threadId: savedThreadId,
-        })
-      } else if (typeof err === 'string') {
-        errorMessage = err
-      } else {
-        errorMessage = '予期しないエラーが発生しました'
-        logger.error('useChat', { message: 'RespondToHITL unexpected error type', error: String(err) })
-      }
+      const errorMessage = getErrorMessage(err)
+      logger.error('useChat', {
+        message: 'RespondToHITL error',
+        error: errorMessage,
+        errorType: err instanceof Error ? err.constructor.name : typeof err,
+        threadId: savedThreadId,
+      })
       setError(errorMessage)
       updateStatus('error')
     }

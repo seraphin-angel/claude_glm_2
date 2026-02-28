@@ -1,5 +1,7 @@
 """P3-55: A/Bテスト基盤 - 実験管理APIエンドポイント"""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.jwt_handler import verify_token
@@ -15,6 +17,7 @@ from app.services.metrics_service import MetricsService
 from app.services.statistics_service import StatisticsService
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
+logger = logging.getLogger(__name__)
 
 
 def _to_experiment_response(experiment) -> dict:
@@ -71,7 +74,13 @@ async def list_experiments(
         try:
             filter_status = ExperimentStatus(status_filter)
         except ValueError:
-            pass
+            logger.warning(
+                "Invalid status filter value ignored",
+                extra={
+                    "status_filter": status_filter,
+                    "valid_values": [s.value for s in ExperimentStatus],
+                },
+            )
     experiments = service.list_experiments(status=filter_status)
     return {
         "success": True,

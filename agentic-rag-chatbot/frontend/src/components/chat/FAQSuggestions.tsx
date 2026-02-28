@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { logger } from '@/lib/logger'
 
 interface FAQ {
   id: string
@@ -22,11 +23,21 @@ async function fetchFAQSuggestions(pageUrl: string, limit: number = 3): Promise<
       `${API_BASE}/faq/suggestions?page_url=${encodeURIComponent(pageUrl)}&limit=${limit}`,
     )
     if (!response.ok) {
+      logger.warn('FAQSuggestions', {
+        message: 'FAQ suggestions API returned error',
+        status: response.status,
+        pageUrl,
+      })
       return []
     }
     const data = await response.json()
     return data.faqs ?? []
-  } catch {
+  } catch (error) {
+    logger.error('FAQSuggestions', {
+      message: 'Failed to fetch FAQ suggestions',
+      pageUrl,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return []
   }
 }
@@ -35,11 +46,19 @@ async function fetchTopFAQs(limit: number = 5): Promise<FAQ[]> {
   try {
     const response = await fetch(`${API_BASE}/faq/top?limit=${limit}`)
     if (!response.ok) {
+      logger.warn('FAQSuggestions', {
+        message: 'Top FAQs API returned error',
+        status: response.status,
+      })
       return []
     }
     const data = await response.json()
     return data.faqs ?? []
-  } catch {
+  } catch (error) {
+    logger.error('FAQSuggestions', {
+      message: 'Failed to fetch top FAQs',
+      error: error instanceof Error ? error.message : String(error),
+    })
     return []
   }
 }
@@ -51,8 +70,13 @@ async function recordFAQClick(faqId: string): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ faq_id: faqId }),
     })
-  } catch {
-    // Ignore errors for click tracking
+  } catch (error) {
+    // Click tracking is non-critical, but log for operational visibility
+    logger.warn('FAQSuggestions', {
+      message: 'Failed to record FAQ click',
+      faqId,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

@@ -167,6 +167,12 @@ def log_llm_call(
         except Exception as e:
             logger.warning(
                 "Failed to record cost",
+                session_id=effective_session_id,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                error=str(e),
+                error_type=type(e).__name__,
                 exc_info=True,
             )
 
