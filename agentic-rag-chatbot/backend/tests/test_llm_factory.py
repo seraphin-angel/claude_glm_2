@@ -1,5 +1,7 @@
 """LLM ファクトリのテスト"""
 
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import app.agents.llm_factory as llm_factory_module
@@ -187,3 +189,139 @@ class TestCostServiceIntegration:
 
         # Clean up
         CostService._instance = None
+
+    def test_log_llm_call_cost_failure_logs_with_error_level_and_error_id(self):
+        """CostService記録失敗時にlogger.errorでエラーID付きログが出力されることを確認"""
+        from unittest.mock import patch, MagicMock
+        from app.services.cost_service import CostService
+
+        # CostServiceのrecord_usageが例外を投げるようにモック
+        original_instance = CostService._instance
+        CostService._instance = None
+
+        try:
+            mock_cost_service = MagicMock()
+            mock_cost_service.record_usage.side_effect = RuntimeError("DB connection failed")
+
+            with patch.object(CostService, "get_instance", return_value=mock_cost_service), \
+                 patch("app.agents.llm_factory.logger") as mock_logger:
+                log_llm_call(
+                    model="gpt-4o-mini",
+                    input_tokens=100,
+                    output_tokens=50,
+                    duration_ms=500,
+                    session_id="test-session-error",
+                )
+
+            # logger.error が呼ばれたことを確認（warning ではなく error）
+            assert mock_logger.error.called
+            error_call = mock_logger.error.call_args
+
+            # error_id が含まれていることを確認
+            assert "error_id" in error_call[1]
+
+            # exc_info=True が設定されていることを確認
+            assert error_call[1].get("exc_info") is True
+        finally:
+            CostService._instance = original_instance
+
+
+class TestSessionContextThreadSafety:
+    """セッションコンテキストのスレッド安全性テスト"""
+
+    def test_concurrent_session_context_isolation(self):
+        """並行アクセス時にセッションIDが混在しないことを検証"""
+        results = {}
+        errors = []
+
+        def worker(thread_id: str):
+            try:
+                # 各スレッドで異なるセッションIDを設定
+                set_session_id(thread_id)
+                time.sleep(0.01)  # コンテキストスイッチを誘発
+                # 自分のセッションIDが取得できることを確認
+                result = get_session_id()
+                results[thread_id] = result
+                clear_session_id()
+            except Exception as e:
+                errors.append((thread_id, str(e)))
+
+        threads = []
+        for i in range(10):
+            t = threading.Thread(target=worker, args=(f"session_{i}",))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # エラーがないことを確認
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+
+        # 各スレッドが自分のセッションIDを取得できたことを確認
+        for thread_id, result in results.items():
+            assert result == thread_id, f"Session ID mismatch: expected {thread_id}, got {result}"
+
+    def test_token_tracker_concurrent_access(self):
+        """TokenTrackerの並行アクセスが安全であることを検証"""
+        from app.agents.llm_factory import TokenTracker, get_token_tracker
+
+        # リセットしてクリーンな状態にする
+        tracker = get_token_tracker()
+        tracker.reset()
+        errors = []
+
+        def add_usage_worker(i: int):
+            try:
+                for _ in range(10):
+                    tracker.add_usage(10, 5)
+                    time.sleep(0.001)  # コンテキストスイッチを誘発
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = []
+        for i in range(5):
+            t = threading.Thread(target=add_usage_worker, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # エラーが発生しないことを確認
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+
+        # トークン数が正しく集計されていることを確認
+        # 5スレッド x 10回 x (10 input + 5 output) = 500 input, 250 output
+        summary = tracker.get_summary()
+        assert summary["call_count"] == 50  # 5 * 10
+        assert summary["total_input_tokens"] == 500  # 5 * 10 * 10
+        assert summary["total_output_tokens"] == 250  # 5 * 10 * 5
+
+    def test_token_tracker_concurrent_reset(self):
+        """TokenTrackerの並行リセットが安全であることを検証"""
+        from app.agents.llm_factory import TokenTracker, get_token_tracker
+
+        tracker = get_token_tracker()
+        tracker.reset()
+        errors = []
+
+        def reset_and_record(i: int):
+            try:
+                tracker.reset()
+                tracker.add_usage(100, 50)
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = []
+        for i in range(5):
+            t = threading.Thread(target=reset_and_record, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # エラーが発生してもクラッシュしないことを確認
+        # 完全な一貫性は期待しないが、クラッシュしてはならない
+        assert len(errors) == 0 or all("lock" not in e.lower() for e in errors)

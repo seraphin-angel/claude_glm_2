@@ -86,16 +86,20 @@ async def get_agent():
                 _persistence_healthy = True
                 logger.info("PostgresSaver initialized successfully")
             except Exception as e:
-                logger.error(
-                    "Failed to initialize PostgresSaver, falling back to MemorySaver. "
-                    "Chat session history will NOT persist across server restarts. "
-                    "THIS IS A CRITICAL DEGRADED STATE.",
+                # CRITICAL: PostgresSaver initialization failed - fail fast
+                logger.critical(
+                    "CRITICAL: Failed to initialize PostgresSaver. "
+                    "Service cannot start without persistent storage.",
                     exc_info=True,
+                    extra={
+                        "error_id": "PERSISTENCE_INIT_FAILED",
+                        "severity": "CRITICAL",
+                    },
                 )
-                _persistence_healthy = False
-                _checkpointer = MemorySaver()
-                _checkpointer_context = None
-                _agent = build_agent(checkpointer=_checkpointer)
+                raise RuntimeError(
+                    "Database persistence unavailable. "
+                    "Please check database configuration and restart the service."
+                ) from e
         else:
             _checkpointer = MemorySaver()
             _checkpointer_context = None
@@ -123,7 +127,12 @@ def is_persistence_healthy() -> bool:
 
 
 def reset_agent():
-    """エージェントをリセット（テスト用）"""
+    """エージェントをリセット（テスト用）
+
+    Uses modern asyncio API (Python 3.10+):
+    - asyncio.get_running_loop() instead of deprecated get_event_loop()
+    - Proper RuntimeError handling when no event loop is running
+    """
     global _agent, _checkpointer, _checkpointer_context, _persistence_healthy
     if _checkpointer_context is not None:
         # 非同期コンテキストマネージャのクリーンアップが必要だが、
@@ -131,14 +140,22 @@ def reset_agent():
         try:
             import asyncio
 
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                # Python 3.10+ 推奨API: 実行中のループのみを取得
+                loop = asyncio.get_running_loop()
                 # イベントループが実行中の場合は非同期でクリーンアップをスケジュール
-                asyncio.create_task(_checkpointer_context.__aexit__(None, None, None))
-            else:
-                # イベントループが実行中でない場合は同期的に実行
-                loop.run_until_complete(_checkpointer_context.__aexit__(None, None, None))
-        except Exception as e:
+                loop.create_task(_checkpointer_context.__aexit__(None, None, None))
+            except RuntimeError:
+                # 実行中のイベントループがない場合
+                # 新しいイベントループを作成して同期的にクリーンアップを実行
+                loop = asyncio.new_event_loop()
+                try:
+                    loop.run_until_complete(
+                        _checkpointer_context.__aexit__(None, None, None)
+                    )
+                finally:
+                    loop.close()
+        except Exception:
             logger.warning(
                 "Failed to cleanup checkpointer context",
                 exc_info=True,
