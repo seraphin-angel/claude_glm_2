@@ -314,8 +314,8 @@ def retrieve_with_strategy(
     elif strategy == "hyde":
         return retrieve_with_hyde(query=query, n_results=n_results, category=category)
     elif strategy == "hybrid":
-        # hybrid は現状 multi_query と同じ（将来的に BM25 と組み合わせる可能性）
-        return retrieve_with_multi_query(query=query, n_results=n_results, category=category)
+        # hybrid: BM25 + Vector + RRF 統合検索（hybrid_retrieve を使用）
+        return hybrid_retrieve(query=query, n_results=n_results, category=category)
     else:
         # standard または無効な値はフォールバック
         return retrieve_documents(query=query, n_results=n_results, category=category)

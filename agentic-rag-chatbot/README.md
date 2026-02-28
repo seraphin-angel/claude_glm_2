@@ -56,7 +56,7 @@ LangGraph の ReAct エージェントが自律的にナレッジベース検索
 
 **バックエンド**
 - FastAPI + Python 3.11+
-- LangGraph ReAct Agent（11ツール: 8コアツール + analyze_image, check_input_safety, check_output_safety）
+- LangGraph ReAct Agent（8コアツール（エージェント内）+ 3スタンドアロンツール（API/ミドルウェアレベル））
 - ChromaDB（ベクトルストア）
 - OpenAI GPT-4o-mini / GPT-4o
 - PostgreSQL（LangGraph Checkpointer）
