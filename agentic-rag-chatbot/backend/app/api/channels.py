@@ -86,7 +86,7 @@ async def slack_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
     if message is None:
         return {"status": "ignored"}
 
-    # TODO: メッセージをチャットボットエンジンに渡して応答生成
+    # NOTE: 自動応答生成は未実装です（制限事項としてREADMEに記載済み）
 
     return {
         "status": "processed",
@@ -224,7 +224,7 @@ async def line_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
     if message is None:
         return {"status": "ignored"}
 
-    # TODO: メッセージをチャットボットエンジンに渡して応答生成
+    # NOTE: 自動応答生成は未実装です（制限事項としてREADMEに記載済み）
 
     return {
         "status": "processed",
@@ -348,7 +348,7 @@ async def email_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
     if message is None:
         return {"status": "ignored"}
 
-    # TODO: メッセージをチャットボットエンジンに渡して応答生成
+    # NOTE: 自動応答生成は未実装です（制限事項としてREADMEに記載済み）
 
     return {
         "status": "processed",

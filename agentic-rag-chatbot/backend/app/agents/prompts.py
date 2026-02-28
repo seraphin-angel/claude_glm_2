@@ -4,6 +4,7 @@
 """
 
 import logging
+from functools import lru_cache
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -156,8 +157,9 @@ _CATEGORY_TO_PROMPT_ID = {
 }
 
 
+@lru_cache(maxsize=1)
 def _get_prompt_service():
-    """PromptServiceを遅延インポートして取得"""
+    """PromptServiceを遅延インポートして取得（キャッシュ付き）"""
     try:
         from app.services.prompt_service import PromptService
         return PromptService.get_instance()

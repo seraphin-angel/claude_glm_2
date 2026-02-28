@@ -8,6 +8,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 直近の会話からキーワードを抽出する件数
+RECENT_CONVERSATION_COUNT = 10
+
 
 class FAQService:
     """FAQ データの管理と推薦を行うサービス"""
@@ -253,64 +256,93 @@ class FAQService:
         recommendations = []
         seen_ids = set()
 
-        # 1. ページベースのFAQ
-        if page_url:
-            page_faqs = self.get_faqs_by_page(page_url, limit=limit)
-            for faq in page_faqs:
-                if faq.get("id") not in seen_ids:
-                    faq["_recommendation_reason"] = "このページに関連する質問"
-                    recommendations.append(faq)
-                    seen_ids.add(faq.get("id"))
-
-        # 2. ユーザーの関心カテゴリに基づくFAQ
-        if user_profile:
-            preferred_categories = getattr(user_profile, "preferred_categories", [])
-            conversations = getattr(user_profile, "conversations", [])
-
-            # 過去の質問から頻出キーワードを抽出
-            question_keywords = set()
-            for conv in conversations[-10:]:  # 直近10件
-                question = getattr(conv, "question", "")
-                # 簡易的なキーワード抽出（スペース区切り）
-                words = question.split()
-                for word in words:
-                    if len(word) >= 2:  # 2文字以上
-                        question_keywords.add(word.lower())
-
-            # 関心カテゴリとキーワードに基づくFAQ
-            for faq in self._faqs:
-                faq_id = faq.get("id")
-                if faq_id in seen_ids:
-                    continue
-
-                faq_category = faq.get("category", "")
-                faq_keywords = [k.lower() for k in faq.get("keywords", [])]
-                faq_question = faq.get("question", "").lower()
-
-                # カテゴリマッチ
-                if faq_category in preferred_categories:
-                    faq_copy = {**faq, "_recommendation_reason": "あなたの関心分野に関連する質問"}
-                    recommendations.append(faq_copy)
-                    seen_ids.add(faq_id)
-                    continue
-
-                # キーワードマッチ
-                for keyword in question_keywords:
-                    if keyword in faq_question or keyword in faq_keywords:
-                        faq_copy = {**faq, "_recommendation_reason": "過去の質問に関連する質問"}
-                        recommendations.append(faq_copy)
-                        seen_ids.add(faq_id)
-                        break
-
-        # 3. 人気FAQで補完
-        if len(recommendations) < limit:
-            top_faqs = self.get_top_questions(limit=limit * 2)
-            for faq in top_faqs:
-                if faq.get("id") not in seen_ids:
-                    faq_copy = {**faq, "_recommendation_reason": "よくある質問"}
-                    recommendations.append(faq_copy)
-                    seen_ids.add(faq.get("id"))
-                    if len(recommendations) >= limit:
-                        break
+        self._add_page_based_faqs(page_url, limit, recommendations, seen_ids)
+        self._add_user_interest_faqs(user_profile, recommendations, seen_ids)
+        self._fill_with_top_faqs(limit, recommendations, seen_ids)
 
         return recommendations[:limit]
+
+    def _add_page_based_faqs(
+        self,
+        page_url: str,
+        limit: int,
+        recommendations: list[dict[str, Any]],
+        seen_ids: set,
+    ) -> None:
+        """ページURLに基づいてFAQを追加"""
+        if not page_url:
+            return
+        page_faqs = self.get_faqs_by_page(page_url, limit=limit)
+        for faq in page_faqs:
+            faq_id = faq.get("id")
+            if faq_id not in seen_ids:
+                faq_copy = {**faq, "_recommendation_reason": "このページに関連する質問"}
+                recommendations.append(faq_copy)
+                seen_ids.add(faq_id)
+
+    def _add_user_interest_faqs(
+        self,
+        user_profile,
+        recommendations: list[dict[str, Any]],
+        seen_ids: set,
+    ) -> None:
+        """ユーザーの関心カテゴリと過去の質問に基づいてFAQを追加"""
+        if not user_profile:
+            return
+
+        preferred_categories = getattr(user_profile, "preferred_categories", [])
+        conversations = getattr(user_profile, "conversations", [])
+
+        # 過去の質問から頻出キーワードを抽出
+        question_keywords = set()
+        for conv in conversations[-RECENT_CONVERSATION_COUNT:]:
+            question = getattr(conv, "question", "")
+            # 簡易的なキーワード抽出（スペース区切り）
+            words = question.split()
+            for word in words:
+                if len(word) >= 2:  # 2文字以上
+                    question_keywords.add(word.lower())
+
+        # 関心カテゴリとキーワードに基づくFAQ
+        for faq in self._faqs:
+            faq_id = faq.get("id")
+            if faq_id in seen_ids:
+                continue
+
+            faq_category = faq.get("category", "")
+            faq_keywords = [k.lower() for k in faq.get("keywords", [])]
+            faq_question = faq.get("question", "").lower()
+
+            # カテゴリマッチ
+            if faq_category in preferred_categories:
+                faq_copy = {**faq, "_recommendation_reason": "あなたの関心分野に関連する質問"}
+                recommendations.append(faq_copy)
+                seen_ids.add(faq_id)
+                continue
+
+            # キーワードマッチ
+            for keyword in question_keywords:
+                if keyword in faq_question or keyword in faq_keywords:
+                    faq_copy = {**faq, "_recommendation_reason": "過去の質問に関連する質問"}
+                    recommendations.append(faq_copy)
+                    seen_ids.add(faq_id)
+                    break
+
+    def _fill_with_top_faqs(
+        self,
+        limit: int,
+        recommendations: list[dict[str, Any]],
+        seen_ids: set,
+    ) -> None:
+        """人気FAQで補完"""
+        if len(recommendations) >= limit:
+            return
+        top_faqs = self.get_top_questions(limit=limit * 2)
+        for faq in top_faqs:
+            faq_id = faq.get("id")
+            if faq_id not in seen_ids:
+                faq_copy = {**faq, "_recommendation_reason": "よくある質問"}
+                recommendations.append(faq_copy)
+                seen_ids.add(faq_id)
+                if len(recommendations) >= limit:
+                    break

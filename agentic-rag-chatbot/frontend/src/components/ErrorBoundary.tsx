@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { logger } from '@/lib/logger'
 
 interface ErrorBoundaryProps {
   readonly children: ReactNode
@@ -22,7 +23,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo)
+    logger.error('ErrorBoundary', {
+      message: 'React component error caught',
+      error: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+    })
+
+    // In production, send to Sentry or similar
+    // if (process.env.NODE_ENV === 'production') {
+    //   Sentry.captureException(error, { contexts: { react: { componentStack: errorInfo.componentStack } } })
+    // }
   }
 
   render() {

@@ -100,6 +100,56 @@ class TestEscalationServiceCreateTicket:
         assert data[0]["reason"] == "Test reason"
 
 
+class TestEscalationServiceCreateTicketAsync:
+    """create_ticket_async メソッドのテスト"""
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_async_basic(self, service: EscalationService):
+        """基本的な非同期チケット作成"""
+        ticket = await service.create_ticket_async(
+            reason="ユーザーが解決を希望",
+            urgency="high",
+            summary="ログイン問題が解決しない",
+        )
+
+        assert ticket["id"].startswith("ESC-")
+        assert ticket["reason"] == "ユーザーが解決を希望"
+        assert ticket["urgency"] == "high"
+        assert ticket["summary"] == "ログイン問題が解決しない"
+        assert ticket["status"] == "open"
+        assert "created_at" in ticket
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_async_with_conversation_history(
+        self,
+        service: EscalationService,
+        sample_conversation_history: list[dict],
+    ):
+        """会話履歴付き非同期チケット作成"""
+        with patch.object(
+            service, "_generate_summary_async", return_value="Async generated summary"
+        ) as mock_gen:
+            ticket = await service.create_ticket_async(
+                reason="技術的に解決不可",
+                urgency="medium",
+                summary="",
+                conversation_history=sample_conversation_history,
+            )
+
+            mock_gen.assert_called_once_with(sample_conversation_history)
+            assert ticket["summary"] == "Async generated summary"
+
+    @pytest.mark.asyncio
+    async def test_create_ticket_async_invalid_urgency(self, service: EscalationService):
+        """無効な緊急度でエラー"""
+        with pytest.raises(ValueError, match="urgency must be one of"):
+            await service.create_ticket_async(
+                reason="test",
+                urgency="critical",  # invalid
+                summary="test",
+            )
+
+
 class TestEscalationServiceGetTickets:
     """get_tickets メソッドのテスト"""
 
@@ -193,6 +243,81 @@ class TestEscalationServiceGenerateSummary:
                 assert call_args[1].get("exc_info") is True
 
 
+class TestEscalationServiceAsyncGenerateSummary:
+    """_generate_summary_async メソッドのテスト（非同期化: TDD RED）"""
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_async_uses_ainvoke(
+        self, service: EscalationService, sample_conversation_history: list[dict]
+    ):
+        """ainvokeが呼ばれることを検証"""
+        with patch("app.agents.llm_factory.get_llm") as mock_get_llm:
+            mock_llm = MagicMock()
+            # ainvokeはコルーチンを返す必要がある
+            async def mock_ainvoke(prompt):
+                class MockResponse:
+                    content = "非同期で生成されたサマリー"
+                return MockResponse()
+
+            mock_llm.ainvoke = mock_ainvoke
+            mock_get_llm.return_value = mock_llm
+
+            summary = await service._generate_summary_async(sample_conversation_history)
+
+            assert summary == "非同期で生成されたサマリー"
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_async_sets_session_id(
+        self, service: EscalationService, sample_conversation_history: list[dict]
+    ):
+        """セッションIDが設定されることを検証"""
+        with patch("app.agents.llm_factory.get_llm") as mock_get_llm, \
+             patch("app.agents.llm_factory.set_session_id") as mock_set_session, \
+             patch("app.agents.llm_factory.clear_session_id") as mock_clear_session:
+
+            mock_llm = MagicMock()
+            async def mock_ainvoke(prompt):
+                class MockResponse:
+                    content = "サマリー"
+                return MockResponse()
+            mock_llm.ainvoke = mock_ainvoke
+            mock_get_llm.return_value = mock_llm
+
+            await service._generate_summary_async(sample_conversation_history)
+
+            # セッションIDが設定されたことを確認
+            mock_set_session.assert_called_once()
+            # セッションIDがクリアされたことを確認
+            mock_clear_session.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_async_clears_session_on_error(
+        self, service: EscalationService, sample_conversation_history: list[dict]
+    ):
+        """エラー時もセッションIDがクリアされることを検証"""
+        with patch("app.agents.llm_factory.get_llm") as mock_get_llm, \
+             patch("app.agents.llm_factory.set_session_id") as mock_set_session, \
+             patch("app.agents.llm_factory.clear_session_id") as mock_clear_session, \
+             patch("app.services.escalation_service.logger"):
+
+            mock_get_llm.side_effect = Exception("LLM error")
+
+            summary = await service._generate_summary_async(sample_conversation_history)
+
+            assert summary == "（サマリー生成エラー）"
+            # エラー時もクリアが呼ばれることを確認
+            mock_clear_session.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_async_empty_history(
+        self, service: EscalationService
+    ):
+        """空の履歴の場合はLLMを呼ばずに早期リターン"""
+        summary = await service._generate_summary_async([])
+
+        assert summary == "（会話履歴なし）"
+
+
 class TestEscalationServiceSingleton:
     """シングルトンパターンのテスト"""
 
@@ -257,3 +382,57 @@ class TestEscalationServicePersistence:
         # 破損ファイルの場合は空リストで開始
         tickets = service.get_tickets()
         assert tickets == []
+
+
+class TestEscalationServiceSaveError:
+    """_save メソッドのエラーハンドリングテスト（TDD: Issue #2）"""
+
+    def test_save_raises_ioerror_on_write_failure(self, temp_persist_path: Path):
+        """_save失敗時にIOErrorが発生することをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        # write_textを失敗させる
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+            with pytest.raises(IOError) as exc_info:
+                service._save()
+
+            assert "Failed to save escalation data" in str(exc_info.value)
+
+        EscalationService.reset_instance()
+
+    def test_create_ticket_propagates_save_error(self, temp_persist_path: Path):
+        """create_ticketで_saveが失敗した場合、エラーが伝播することをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        # _saveを失敗させる
+        with patch.object(service, "_save", side_effect=IOError("disk full")):
+            with pytest.raises(IOError) as exc_info:
+                service.create_ticket(
+                    reason="test reason",
+                    urgency="high",
+                    summary="test summary",
+                )
+
+            assert "disk full" in str(exc_info.value)
+
+        EscalationService.reset_instance()
+
+    def test_save_logs_error_with_details_on_failure(self, temp_persist_path: Path):
+        """_save失敗時にエラー詳細を含むログが出力されることをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+            with patch("app.services.escalation_service.logger") as mock_logger:
+                with pytest.raises(IOError):
+                    service._save()
+
+                # errorレベルでログが出力されることを確認
+                mock_logger.error.assert_called_once()
+                call_args = mock_logger.error.call_args
+                # DATA LOSS RISK が含まれることを確認
+                assert "DATA LOSS RISK" in call_args[0][0]
+
+        EscalationService.reset_instance()

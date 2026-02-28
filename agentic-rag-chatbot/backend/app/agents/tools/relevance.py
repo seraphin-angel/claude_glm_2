@@ -1,4 +1,4 @@
-import logging
+import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
@@ -6,9 +6,10 @@ from langchain_core.tools import tool
 from app.agents.llm_factory import get_llm
 from app.agents.output_models import RelevanceOutput
 from app.config.settings import get_settings
+from app.core.logging import get_logger
 from app.services.gap_service import KnowledgeGapService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @tool
@@ -63,13 +64,17 @@ def check_relevance(query: str, search_results: list[dict]) -> dict:
             KnowledgeGapService.get_instance().record_gap(query, reason=output["reason"])
         return output
     except Exception as e:
+        error_id = str(uuid.uuid4())[:8]
         logger.error(
             "LLM relevance evaluation failed, falling back to score-based judgment",
             exc_info=True,
+            error_id=error_id,
+            fallback_used=True,
+            error_type=type(e).__name__,
         )
         avg_score = sum(d.get("relevance_score", 0) for d in search_results) / max(len(search_results), 1)
         is_relevant = avg_score > 0.5
-        fallback_reason = "LLM評価に失敗したため、簡易判定を使用しました（回答精度が低下する可能性があります）"
+        fallback_reason = f"[警告] LLM評価エラー(ID:{error_id}) - 簡易判定を使用"
         if not is_relevant:
             KnowledgeGapService.get_instance().record_gap(query, reason=fallback_reason)
         return {
@@ -77,4 +82,6 @@ def check_relevance(query: str, search_results: list[dict]) -> dict:
             "score": avg_score,
             "relevant_doc_indices": list(range(len(search_results))),
             "reason": fallback_reason,
+            "evaluation_error": True,
+            "error_id": error_id,
         }

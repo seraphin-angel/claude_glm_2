@@ -34,26 +34,39 @@ async function createHttpErrorMessage(response: Response): Promise<string> {
   return `API error: ${response.status}${statusText}${errorBody}`
 }
 
-export async function sendMessage(
-  message: string,
-  threadId: string | null = null,
-  imageData?: string,
-): Promise<ApiResponse<ChatStartData>> {
+/**
+ * 汎用APIリクエストラッパー
+ * エラーハンドリングとネットワークエラー変換を統一
+ */
+async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<ApiResponse<T>> {
   try {
-    const response = await fetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, thread_id: threadId, image_data: imageData ?? null }),
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...options.headers },
     })
 
     if (!response.ok) {
       throw new Error(await createHttpErrorMessage(response))
     }
 
-    return (await response.json()) as ApiResponse<ChatStartData>
+    return (await response.json()) as ApiResponse<T>
   } catch (error) {
     throw handleNetworkError(error)
   }
+}
+
+export async function sendMessage(
+  message: string,
+  threadId: string | null = null,
+  imageData?: string,
+): Promise<ApiResponse<ChatStartData>> {
+  return apiRequest<ChatStartData>('/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message, thread_id: threadId, image_data: imageData ?? null }),
+  })
 }
 
 export async function uploadImage(
@@ -61,21 +74,10 @@ export async function uploadImage(
   filename: string,
   mimeType: string,
 ): Promise<ApiResponse<{ image_id: string }>> {
-  try {
-    const response = await fetch(`${API_BASE}/chat/image`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_data: imageData, filename, mime_type: mimeType }),
-    })
-
-    if (!response.ok) {
-      throw new Error(await createHttpErrorMessage(response))
-    }
-
-    return (await response.json()) as ApiResponse<{ image_id: string }>
-  } catch (error) {
-    throw handleNetworkError(error)
-  }
+  return apiRequest<{ image_id: string }>('/chat/image', {
+    method: 'POST',
+    body: JSON.stringify({ image_data: imageData, filename, mime_type: mimeType }),
+  })
 }
 
 export async function resumeChat(
@@ -83,40 +85,18 @@ export async function resumeChat(
   requestId: string,
   userResponse: string,
 ): Promise<ApiResponse<ChatStartData>> {
-  try {
-    const response = await fetch(`${API_BASE}/chat/resume/${threadId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request_id: requestId, response: userResponse }),
-    })
-
-    if (!response.ok) {
-      throw new Error(await createHttpErrorMessage(response))
-    }
-
-    return (await response.json()) as ApiResponse<ChatStartData>
-  } catch (error) {
-    throw handleNetworkError(error)
-  }
+  return apiRequest<ChatStartData>(`/chat/resume/${threadId}`, {
+    method: 'POST',
+    body: JSON.stringify({ request_id: requestId, response: userResponse }),
+  })
 }
 
 export async function sendFeedback(
   messageId: string,
   rating: 'positive' | 'negative',
 ): Promise<ApiResponse<void>> {
-  try {
-    const response = await fetch(`${API_BASE}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId, rating }),
-    })
-
-    if (!response.ok) {
-      throw new Error(await createHttpErrorMessage(response))
-    }
-
-    return (await response.json()) as ApiResponse<void>
-  } catch (error) {
-    throw handleNetworkError(error)
-  }
+  return apiRequest<void>('/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ message_id: messageId, rating }),
+  })
 }

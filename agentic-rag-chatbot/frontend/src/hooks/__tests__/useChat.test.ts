@@ -8,36 +8,51 @@ vi.stubGlobal('crypto', {
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 })
 
-let mockEventSourceInstance: {
+// 個別インスタンスの型定義
+interface MockEventSourceInstance {
   onmessage: ((event: MessageEvent) => void) | null
   onerror: ((event: Event) => void) | null
+  onopen: ((event: Event) => void) | null
   readyState: number
   close: ReturnType<typeof vi.fn>
   simulateMessage: (data: object) => void
+  url: string
 }
 
-class EventSourceProxy {
+// 後方互換性のための単一インスタンス参照
+let mockEventSourceInstance: MockEventSourceInstance
+
+// MockEventSourceクラス（複数インスタンス追跡対応）
+class MockEventSource {
   static CONNECTING = 0
   static OPEN = 1
   static CLOSED = 2
+  static instances: MockEventSourceInstance[] = []
 
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: Event) => void) | null = null
+  onopen: ((event: Event) => void) | null = null
   readyState = 0
+  url: string
   close = vi.fn(() => {
     this.readyState = 2
   })
 
-  constructor(_url: string) {
-    mockEventSourceInstance = this as typeof mockEventSourceInstance
-    mockEventSourceInstance.simulateMessage = (data: object) => {
+  constructor(url: string) {
+    this.url = url
+    const instance = this as unknown as MockEventSourceInstance
+    instance.simulateMessage = (data: object) => {
       this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent)
     }
+    instance.url = url
+    MockEventSource.instances.push(instance)
+    mockEventSourceInstance = instance
   }
 }
 
 beforeEach(() => {
-  vi.stubGlobal('EventSource', EventSourceProxy)
+  MockEventSource.instances = []
+  vi.stubGlobal('EventSource', MockEventSource)
   vi.stubGlobal('fetch', vi.fn())
   // テスト用に開発モードを有効化
   setIsDevelopment(true)
@@ -92,26 +107,7 @@ describe('useChat', () => {
       })
     })
 
-    it('request_idが欠落した場合、currentHITLが設定されない（クラッシュしない）', async () => {
-      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
-      const { result } = renderHook(() => useChat())
-
-      await act(async () => {
-        await result.current.send('hello')
-      })
-
-      act(() => {
-        mockEventSourceInstance.simulateMessage({
-          type: 'hitl_request',
-          question: 'どちらですか？',
-          // request_id が欠落
-        })
-      })
-
-      expect(result.current.currentHITL).toBeNull()
-    })
-
-    it('questionが欠落した場合、currentHITLが設定されない（クラッシュしない）', async () => {
+    it('hitl_requestイベントで全フィールドが正しく設定される', async () => {
       mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
       const { result } = renderHook(() => useChat())
 
@@ -123,11 +119,45 @@ describe('useChat', () => {
         mockEventSourceInstance.simulateMessage({
           type: 'hitl_request',
           request_id: 'req-1',
-          // question が欠落
+          question: 'どちらですか？',
+          options: ['A', 'B'],
+          input_type: 'buttons',
         })
       })
 
-      expect(result.current.currentHITL).toBeNull()
+      expect(result.current.currentHITL).toEqual({
+        request_id: 'req-1',
+        question: 'どちらですか？',
+        options: ['A', 'B'],
+        input_type: 'buttons',
+      })
+      expect(result.current.status).toBe('hitl_pending')
+    })
+
+    it('hitl_requestイベントでoptionsがnullの場合も正しく処理される', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      await act(async () => {
+        await result.current.send('hello')
+      })
+
+      act(() => {
+        mockEventSourceInstance.simulateMessage({
+          type: 'hitl_request',
+          request_id: 'req-2',
+          question: 'テキストを入力してください',
+          options: null,
+          input_type: 'text',
+        })
+      })
+
+      expect(result.current.currentHITL).toEqual({
+        request_id: 'req-2',
+        question: 'テキストを入力してください',
+        options: null,
+        input_type: 'text',
+      })
     })
   })
 
@@ -196,8 +226,9 @@ describe('useChat', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         '[useChat]',
         expect.objectContaining({
-          message: 'Unexpected error type',
-          error: '[object Object]',
+          message: 'Send message error',
+          error: '予期しないエラーが発生しました',
+          errorType: 'object',
         }),
       )
       expect(result.current.error).toBe('予期しないエラーが発生しました')
@@ -489,7 +520,7 @@ describe('useChat', () => {
       expect(result.current.streamingContent).toBe('再開')
     })
 
-    it('contentがundefinedのtokenイベントは無視される', async () => {
+    it('tokenイベントのcontentが蓄積される', async () => {
       mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
       const { result } = renderHook(() => useChat())
 
@@ -506,15 +537,16 @@ describe('useChat', () => {
 
       expect(result.current.streamingContent).toBe('Hello')
 
-      // contentなしのトークンイベント
+      // 追加のトークンイベント
       act(() => {
         mockEventSourceInstance.simulateMessage({
           type: 'token',
+          content: ' World',
         })
       })
 
-      // 変わっていないことを確認
-      expect(result.current.streamingContent).toBe('Hello')
+      // 蓄積されていることを確認
+      expect(result.current.streamingContent).toBe('Hello World')
     })
   })
 
@@ -692,6 +724,238 @@ describe('useChat', () => {
       })
 
       expect(result.current.activeTool).toBeNull()
+    })
+  })
+
+  describe('同時送信防止 (Criticality: 7-8)', () => {
+    it('streaming状態では送信がブロックされる', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      // 最初の送信
+      await act(async () => {
+        await result.current.send('hello')
+      })
+
+      expect(result.current.status).toBe('streaming')
+
+      // fetchをリセット
+      const fetchCallCount = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length
+
+      // streaming中に再度送信
+      await act(async () => {
+        await result.current.send('another message')
+      })
+
+      // fetchは追加で呼ばれない（ブロックされた）
+      // ※現在の実装ではブロックされないので、このテストはRED（失敗）になる
+      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(fetchCallCount)
+    })
+
+    it('error状態では送信が可能', async () => {
+      mockFetchFailure('エラー発生')
+      const { result } = renderHook(() => useChat())
+
+      // エラーになる送信
+      await act(async () => {
+        await result.current.send('hello')
+      })
+
+      expect(result.current.status).toBe('error')
+
+      // fetchをリセットして成功に設定
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockClear()
+      mockFetchSuccess({ thread_id: 'thread-2', status: 'started' })
+
+      // error状態からは送信可能
+      await act(async () => {
+        await result.current.send('retry')
+      })
+
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('hitl_pending状態では送信がブロックされる', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      // HITLリクエストが来るまで送信
+      await act(async () => {
+        await result.current.send('hello')
+      })
+
+      act(() => {
+        mockEventSourceInstance.simulateMessage({
+          type: 'hitl_request',
+          request_id: 'req-1',
+          question: 'どちらですか？',
+        })
+      })
+
+      expect(result.current.status).toBe('hitl_pending')
+
+      // fetchをリセット
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockClear()
+
+      // hitl_pending中に送信を試みる
+      await act(async () => {
+        await result.current.send('another message')
+      })
+
+      // fetchは呼ばれない（ブロックされるべき）
+      // ※現在の実装ではブロックされないので、このテストはRED（失敗）になる
+      expect(global.fetch).not.toHaveBeenCalled()
+    })
+
+    it('idle状態では送信が可能', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      expect(result.current.status).toBe('idle')
+
+      // idle状態では送信可能
+      await act(async () => {
+        await result.current.send('hello')
+      })
+
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('SSE Network Error Recovery', () => {
+    it('should transition to error state on network failure', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      // メッセージ送信
+      await act(async () => {
+        await result.current.send('Hello')
+      })
+
+      expect(result.current.status).toBe('streaming')
+
+      // EventSourceのonerrorをトリガー（複数回のリトライをシミュレート）
+      await act(async () => {
+        const eventSource = MockEventSource.instances[0]
+        if (eventSource && eventSource.onerror) {
+          // 最大リトライ数(3回)を超えるまでエラーをトリガー
+          for (let i = 0; i < 4; i++) {
+            eventSource.onerror(new Event('error'))
+            // リトライのsetTimeoutを進めるために少し待機
+            await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+        }
+      })
+
+      expect(result.current.status).toBe('error')
+      expect(result.current.error).toBeTruthy()
+    })
+
+    it('should recover when reconnection succeeds after failure', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      // 最初のメッセージ送信
+      await act(async () => {
+        await result.current.send('Hello')
+      })
+
+      expect(result.current.status).toBe('streaming')
+
+      // 最初の接続でエラーをトリガー（リトライを発生させるが、最終的にエラーにする）
+      await act(async () => {
+        const es = MockEventSource.instances[0]
+        if (es?.onerror) {
+          // 最大リトライ数を超える
+          for (let i = 0; i < 4; i++) {
+            es.onerror(new Event('error'))
+            await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+        }
+      })
+
+      expect(result.current.status).toBe('error')
+
+      // 再接続のためにretryLastMessageを呼ぶ
+      mockFetchSuccess({ thread_id: 'thread-2', status: 'started' })
+
+      await act(async () => {
+        await result.current.retryLastMessage()
+      })
+
+      // 新しいEventSourceインスタンスが作成される
+      const newEs = MockEventSource.instances[MockEventSource.instances.length - 1]
+
+      // 接続成功をシミュレート
+      await act(async () => {
+        if (newEs?.onopen) {
+          newEs.onopen(new Event('open'))
+        }
+        if (newEs?.onmessage) {
+          newEs.onmessage({
+            data: JSON.stringify({ type: 'done' }),
+          } as MessageEvent)
+        }
+      })
+
+      expect(result.current.status).toBe('idle')
+      expect(result.current.error).toBeNull()
+    })
+
+    it('should show user-friendly message after max retries exceeded', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      await act(async () => {
+        await result.current.send('Hello')
+      })
+
+      // 複数回エラー（リトライ上限到達）- 最大3回リトライ後、4回目でエラー
+      await act(async () => {
+        const es = MockEventSource.instances[0]
+        if (es?.onerror) {
+          for (let i = 0; i < 4; i++) {
+            es.onerror(new Event('error'))
+            await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+        }
+      })
+
+      expect(result.current.status).toBe('error')
+      // エラーメッセージには「接続が切断されました」が含まれる
+      expect(result.current.error).toContain('接続が切断されました')
+    })
+
+    it('should display retry attempt count during reconnection', async () => {
+      mockFetchSuccess({ thread_id: 'thread-1', status: 'started' })
+      const { result } = renderHook(() => useChat())
+
+      await act(async () => {
+        await result.current.send('Hello')
+      })
+
+      // 最初のエラーでリトライ状態になる
+      await act(async () => {
+        const es = MockEventSource.instances[0]
+        if (es?.onerror) {
+          es.onerror(new Event('error'))
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      })
+
+      // リトライ中のメッセージが表示される（「再接続中...（1/3）」など）
+      expect(result.current.error).toMatch(/再接続中.*1\/3/)
+
+      // 2回目のリトライ
+      await act(async () => {
+        const es = MockEventSource.instances[0]
+        if (es?.onerror) {
+          es.onerror(new Event('error'))
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      })
+
+      expect(result.current.error).toMatch(/再接続中.*2\/3/)
     })
   })
 })

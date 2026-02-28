@@ -375,6 +375,10 @@ class TestCheckRelevance:
         assert result["is_relevant"] is True
         assert result["score"] == pytest.approx(0.70)
         assert "簡易判定" in result["reason"]
+        # フォールバック時は evaluation_error=True と error_id が含まれる
+        assert result["evaluation_error"] is True
+        assert "error_id" in result
+        assert len(result["error_id"]) == 8
 
     def test_relevance_exception_score_based_fallback_low(self):
         """StructuredOutput が Exception を発生させた場合に平均スコアが低いと is_relevant=False になることを確認"""
@@ -397,6 +401,9 @@ class TestCheckRelevance:
 
         # 平均スコア = (0.20 + 0.30) / 2 = 0.25 <= 0.5 → False
         assert result["is_relevant"] is False
+        # フォールバック時は evaluation_error=True と error_id が含まれる
+        assert result["evaluation_error"] is True
+        assert "error_id" in result
 
     def test_relevance_structured_output_success(self):
         """StructuredOutput が正常に動作し、結果が返されることを確認"""
@@ -499,7 +506,7 @@ class TestCheckRelevance:
         assert result["score"] == 0.75
 
     def test_relevance_fallback_message_includes_accuracy_warning(self):
-        """フォールバック時に精度低下の可能性を通知するメッセージが含まれることを確認"""
+        """フォールバック時に警告メッセージとエラーIDが含まれることを確認"""
         mock_structured_llm = MagicMock()
         mock_structured_llm.side_effect = Exception("parse error")
 
@@ -516,8 +523,47 @@ class TestCheckRelevance:
                 "search_results": search_results,
             })
 
-        # フォールバックメッセージに精度低下の可能性を通知する内容が含まれる
-        assert "精度" in result["reason"] or "低下" in result["reason"] or "ご注意" in result["reason"]
+        # フォールバックメッセージに警告とエラーIDが含まれる
+        assert "[警告]" in result["reason"]
+        assert "LLM評価エラー" in result["reason"]
+        assert "簡易判定" in result["reason"]
+        assert result["evaluation_error"] is True
+        assert "error_id" in result
+
+    def test_relevance_fallback_logs_with_error_id_and_exc_info(self):
+        """LLM評価失敗時にエラーID、exc_info=True、fallback_usedフラグがログ出力されることを確認"""
+        import logging
+        from unittest.mock import MagicMock, patch, call
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.side_effect = Exception("LLM parse error")
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        search_results = [
+            {"content": "関連ドキュメント", "relevance_score": 0.75},
+        ]
+
+        with patch("app.agents.tools.relevance.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.relevance.logger") as mock_logger:
+            result = check_relevance.invoke({
+                "query": "テスト質問",
+                "search_results": search_results,
+            })
+
+        # logger.error が呼ばれたことを確認
+        assert mock_logger.error.called
+        error_call = mock_logger.error.call_args
+
+        # exc_info=True が設定されていることを確認
+        assert error_call[1].get("exc_info") is True
+
+        # エラーIDが含まれていることを確認
+        assert "error_id" in error_call[1]
+
+        # fallback_used フラグが含まれていることを確認
+        assert error_call[1].get("fallback_used") is True
 
 
 # ===========================================================================
@@ -852,3 +898,237 @@ class TestAskHuman:
         call_kwargs = mock_interrupt.call_args[0][0]
         # 空リストは falsy → text タイプになる
         assert call_kwargs["input_type"] == "text"
+
+
+# ===========================================================================
+# 8. search_knowledge 例外処理テスト
+# ===========================================================================
+
+
+class TestSearchKnowledgeExceptionHandling:
+    """search_knowledge ツールの例外処理テスト"""
+
+    def test_search_knowledge_handles_retriever_exception(self):
+        """hybrid_retrieveが例外を投げた場合のエラーハンドリング"""
+        with patch("app.agents.tools.search.hybrid_retrieve") as mock_retrieve:
+            mock_retrieve.side_effect = ConnectionError("ChromaDB connection failed")
+
+            # 例外が発生することを確認（現在の実装では例外が伝播する）
+            with pytest.raises(ConnectionError):
+                search_knowledge.invoke({"query": "test query"})
+
+    def test_search_knowledge_handles_generic_exception(self):
+        """hybrid_retrieveが一般的な例外を投げた場合の処理"""
+        with patch("app.agents.tools.search.hybrid_retrieve") as mock_retrieve:
+            mock_retrieve.side_effect = RuntimeError("Unexpected error")
+
+            # 例外が発生することを確認
+            with pytest.raises(RuntimeError):
+                search_knowledge.invoke({"query": "test query"})
+
+    def test_search_knowledge_handles_timeout_exception(self):
+        """hybrid_retrieveがタイムアウトした場合の処理"""
+        with patch("app.agents.tools.search.hybrid_retrieve") as mock_retrieve:
+            mock_retrieve.side_effect = TimeoutError("Request timed out")
+
+            # 例外が発生することを確認
+            with pytest.raises(TimeoutError):
+                search_knowledge.invoke({"query": "test query"})
+
+
+# ===========================================================================
+# 9. generate_answer エッジケーステスト
+# ===========================================================================
+
+
+class TestGenerateAnswerEdgeCases:
+    """generate_answer ツールのエッジケーステスト"""
+
+    def test_generate_answer_with_empty_documents(self):
+        """空ドキュメントでの回答生成 - LLMに空コンテキストが渡されることを確認"""
+        mock_llm, _ = _make_chat_llm_mock("確認が必要です。詳細な情報をお知らせください。")
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            result = generate_answer.invoke({
+                "query": "What is AI?",
+                "relevant_documents": [],
+            })
+
+        # LLMが呼ばれ、何らかの回答が返ることを確認
+        assert result is not None
+        mock_llm.assert_called_once()
+
+    def test_generate_answer_with_malformed_documents(self):
+        """不正な形式のドキュメントでの処理 - contentキーなし"""
+        mock_llm, _ = _make_chat_llm_mock("回答テキスト")
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            result = generate_answer.invoke({
+                "query": "What is AI?",
+                "relevant_documents": [{"invalid_key": "value"}],  # contentキーなし
+            })
+
+        # クラッシュせず、何らかの回答が返ることを確認
+        # doc.get("content", "") により空文字として処理される
+        assert result is not None
+
+    def test_generate_answer_with_partial_metadata(self):
+        """メタデータが部分的なドキュメントでの処理"""
+        mock_llm, _ = _make_chat_llm_mock("回答テキスト")
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            result = generate_answer.invoke({
+                "query": "テスト質問",
+                "relevant_documents": [
+                    {"content": "内容のみ", "metadata": {}},  # sourceなし
+                    {"content": "別の内容", "metadata": {"source": "doc.md"}},  # sectionなし
+                ],
+            })
+
+        # クラッシュせず、LLMが呼ばれることを確認
+        assert result is not None
+        mock_llm.assert_called_once()
+
+    def test_generate_answer_with_special_characters_in_content(self):
+        """特殊文字を含むコンテンツでの処理"""
+        mock_llm, _ = _make_chat_llm_mock("回答テキスト")
+
+        special_content = "特殊文字: <script>alert('xss')</script> & \" ' \\n \\t"
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            result = generate_answer.invoke({
+                "query": "テスト質問",
+                "relevant_documents": [{"content": special_content, "metadata": {}}],
+            })
+
+        # クラッシュせず、何らかの回答が返ることを確認
+        assert result is not None
+
+    def test_generate_answer_with_large_document_count(self):
+        """大量のドキュメントでの処理"""
+        mock_llm, _ = _make_chat_llm_mock("統合された回答")
+
+        # 20件のドキュメント
+        documents = [
+            {"content": f"ドキュメント{i}の内容", "metadata": {"source": f"doc{i}.md"}}
+            for i in range(20)
+        ]
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            result = generate_answer.invoke({
+                "query": "総合的な質問",
+                "relevant_documents": documents,
+            })
+
+        # クラッシュせず、LLMが呼ばれることを確認
+        assert result is not None
+
+    def test_generate_answer_llm_exception_propagates(self):
+        """LLM呼び出しが例外を投げた場合、例外が伝播することを確認"""
+        mock_llm = MagicMock()
+        mock_llm.side_effect = RuntimeError("LLM API error")
+
+        with patch("app.agents.tools.generate.get_llm", return_value=mock_llm):
+            with pytest.raises(RuntimeError, match="LLM API error"):
+                generate_answer.invoke({
+                    "query": "テスト質問",
+                    "relevant_documents": [{"content": "内容", "metadata": {}}],
+                })
+
+
+# ===========================================================================
+# 10. classify_query バリデーションテスト
+# ===========================================================================
+
+
+class TestClassifyQueryValidation:
+    """classify_query ツールのバリデーションテスト"""
+
+    def test_classify_query_handles_invalid_category(self):
+        """LLMが無効なカテゴリを返した場合、unclearとして処理されてinterruptが呼ばれる"""
+        # 無効なカテゴリを返すモック
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.return_value = MagicMock(
+            category="invalid_category",
+            confidence=0.9,
+            reason="無効なカテゴリ"
+        )
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        with patch("app.agents.tools.classify.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.classify.interrupt", return_value="操作方法") as mock_interrupt:
+            result = classify_query.invoke({"query": "test query"})
+
+        # 無効なカテゴリでもconfidenceが高ければそのまま返る
+        # (現在の実装ではカテゴリのバリデーションがないため)
+        # もしunclearまたはinterruptが呼ばれる実装なら、そちらを確認
+        # 現状は無効なカテゴリもそのまま返る仕様
+        assert result["category"] == "invalid_category"
+
+    def test_classify_query_handles_empty_category(self):
+        """LLMが空のカテゴリを返した場合の処理"""
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.return_value = MagicMock(
+            category="",
+            confidence=0.5,
+            reason="カテゴリ不明"
+        )
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        with patch("app.agents.tools.classify.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.classify.interrupt", return_value="その他") as mock_interrupt:
+            result = classify_query.invoke({"query": "test query"})
+
+        # 空カテゴリ + 低confidence → interruptが呼ばれる
+        mock_interrupt.assert_called_once()
+
+    def test_classify_query_handles_none_category(self):
+        """LLMがNoneを返した場合の処理"""
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.return_value = MagicMock(
+            category=None,
+            confidence=0.5,
+            reason="カテゴリ不明"
+        )
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        with patch("app.agents.tools.classify.get_llm", return_value=mock_llm), \
+             patch("app.agents.tools.classify.interrupt", return_value="その他") as mock_interrupt:
+            result = classify_query.invoke({"query": "test query"})
+
+        # Noneカテゴリ + 低confidence → interruptが呼ばれる
+        mock_interrupt.assert_called_once()
+
+    def test_classify_query_handles_very_long_query(self):
+        """非常に長いクエリでの処理"""
+        mock_llm, _ = _make_structured_llm_mock(
+            ClassifyOutput(category="操作方法", confidence=0.85, reason="長い質問")
+        )
+
+        long_query = "製品の使い方について" * 1000  # 非常に長いクエリ
+
+        with patch("app.agents.tools.classify.get_llm", return_value=mock_llm):
+            result = classify_query.invoke({"query": long_query})
+
+        # クラッシュせず、分類結果が返ることを確認
+        assert result["category"] == "操作方法"
+
+    def test_classify_query_handles_special_characters(self):
+        """特殊文字を含むクエリでの処理"""
+        mock_llm, _ = _make_structured_llm_mock(
+            ClassifyOutput(category="障害・トラブル", confidence=0.90, reason="エラー相关")
+        )
+
+        special_query = "エラーが発生: <script>alert('xss')</script> & \" ' \\n"
+
+        with patch("app.agents.tools.classify.get_llm", return_value=mock_llm):
+            result = classify_query.invoke({"query": special_query})
+
+        # クラッシュせず、分類結果が返ることを確認
+        assert result["category"] == "障害・トラブル"

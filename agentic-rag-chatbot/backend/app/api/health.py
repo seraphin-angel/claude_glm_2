@@ -46,6 +46,14 @@ class SessionsCheck(BaseModel):
     active: int
 
 
+class PersistenceCheck(BaseModel):
+    """Persistence layer health check result."""
+
+    status: str  # "ok" or "degraded"
+    healthy: bool
+    message: str
+
+
 class HealthChecks(BaseModel):
     """All health check results."""
 
@@ -53,6 +61,7 @@ class HealthChecks(BaseModel):
     openai: OpenAICheck
     memory: MemoryCheck
     sessions: SessionsCheck
+    persistence: PersistenceCheck
 
 
 class HealthResponse(BaseModel):
@@ -132,6 +141,7 @@ def determine_health_status(checks: HealthChecks) -> str:
     statuses = [
         checks.chromadb.status,
         checks.openai.status,
+        checks.persistence.status,
     ]
 
     if all(s == "ok" for s in statuses):
@@ -140,6 +150,29 @@ def determine_health_status(checks: HealthChecks) -> str:
         return "degraded"
     else:
         return "unhealthy"
+
+
+def check_persistence() -> PersistenceCheck:
+    """Check if persistence layer is healthy.
+
+    Returns:
+        PersistenceCheck with status, healthy flag, and message.
+    """
+    from app.agents.agent import is_persistence_healthy
+
+    healthy = is_persistence_healthy()
+    if healthy:
+        return PersistenceCheck(
+            status="ok",
+            healthy=True,
+            message="Persistence layer is functioning normally",
+        )
+    else:
+        return PersistenceCheck(
+            status="degraded",
+            healthy=False,
+            message="PostgresSaver fallback to MemorySaver - session history will not persist",
+        )
 
 
 @router.get("/api/health")
@@ -157,12 +190,14 @@ async def detailed_health():
     openai_check = await check_openai()
     memory_check = get_system_metrics()
     sessions_check = await get_active_sessions()
+    persistence_check = check_persistence()
 
     checks = HealthChecks(
         chromadb=chromadb_check,
         openai=openai_check,
         memory=memory_check,
         sessions=sessions_check,
+        persistence=persistence_check,
     )
 
     status = determine_health_status(checks)

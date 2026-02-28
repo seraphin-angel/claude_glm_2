@@ -249,3 +249,83 @@ class TestPromptServiceLoadError:
                 assert call_args[1].get("exc_info") is True
 
         PromptService.reset_instance()
+
+
+class TestPromptServiceSaveError:
+    """_save メソッドのエラーハンドリングテスト（TDD: Issue #2）"""
+
+    def test_save_raises_ioerror_on_write_failure(self, tmp_path):
+        """_save失敗時にIOErrorが発生することをテスト"""
+        data_file = tmp_path / "prompts.json"
+        data_file.write_text('{"prompts": {}}', encoding="utf-8")
+
+        PromptService.reset_instance()
+        with patch.object(PromptService, "_get_default_data_path", return_value=data_file):
+            service = PromptService.get_instance()
+
+            # write_textを失敗させる
+            with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+                with pytest.raises(IOError) as exc_info:
+                    service._save()
+
+                assert "Failed to save prompt data" in str(exc_info.value)
+
+        PromptService.reset_instance()
+
+    def test_update_prompt_propagates_save_error(self, tmp_path, sample_prompts_data):
+        """update_promptで_saveが失敗した場合、エラーが伝播することをテスト"""
+        data_file = tmp_path / "prompts.json"
+        data_file.write_text(json.dumps(sample_prompts_data, ensure_ascii=False), encoding="utf-8")
+
+        PromptService.reset_instance()
+        with patch.object(PromptService, "_get_default_data_path", return_value=data_file):
+            service = PromptService.get_instance()
+
+            # _saveを失敗させる
+            with patch.object(service, "_save", side_effect=IOError("disk full")):
+                with pytest.raises(IOError) as exc_info:
+                    service.update_prompt("system", "new content")
+
+                assert "disk full" in str(exc_info.value)
+
+        PromptService.reset_instance()
+
+    def test_rollback_prompt_propagates_save_error(self, tmp_path, sample_prompts_data):
+        """rollback_promptで_saveが失敗した場合、エラーが伝播することをテスト"""
+        data_file = tmp_path / "prompts.json"
+        data_file.write_text(json.dumps(sample_prompts_data, ensure_ascii=False), encoding="utf-8")
+
+        PromptService.reset_instance()
+        with patch.object(PromptService, "_get_default_data_path", return_value=data_file):
+            service = PromptService.get_instance()
+
+            # _saveを失敗させる
+            with patch.object(service, "_save", side_effect=IOError("disk full")):
+                with pytest.raises(IOError) as exc_info:
+                    service.rollback_prompt("category_troubleshooting", 1)
+
+                assert "disk full" in str(exc_info.value)
+
+        PromptService.reset_instance()
+
+    def test_save_logs_error_with_details_on_failure(self, tmp_path):
+        """_save失敗時にエラー詳細を含むログが出力されることをテスト"""
+        data_file = tmp_path / "prompts.json"
+        data_file.write_text('{"prompts": {}}', encoding="utf-8")
+
+        PromptService.reset_instance()
+        with patch.object(PromptService, "_get_default_data_path", return_value=data_file):
+            service = PromptService.get_instance()
+
+            with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+                with patch("app.services.prompt_service.logger") as mock_logger:
+                    with pytest.raises(IOError):
+                        service._save()
+
+                    # errorレベルでログが出力されることを確認
+                    mock_logger.error.assert_called_once()
+                    call_args = mock_logger.error.call_args
+                    # DATA LOSS RISK が含まれることを確認
+                    assert "DATA LOSS RISK" in call_args[0][0]
+
+        PromptService.reset_instance()

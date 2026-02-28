@@ -1,14 +1,26 @@
 import asyncio
-import logging
 import os
 import uuid
+from dataclasses import dataclass, field
 
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
-from app.agents.agent import get_agent
+from app.core.logging import get_logger
 from app.models.messages import SourceDocument, StreamEvent, StreamEventType
 
-logger = logging.getLogger(__name__)
+# 循環インポート回避: get_agentは使用箇所で遅延import
+# from app.agents.agent import get_agent  # 削除
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class StreamState:
+    """ストリーミング処理の状態を管理するデータクラス"""
+
+    full_response: str = ""
+    step_count: int = 0
 
 
 def _extract_source_documents(tool_output: dict) -> list[SourceDocument] | None:
@@ -112,8 +124,7 @@ class ChatService:
         event: dict,
         queue: asyncio.Queue,
         thread_id: str,
-        full_response: list[str],
-        step_count: list[int],
+        state: StreamState,
     ) -> bool:
         """イベントを処理する。MAX_STEPS超過時はTrueを返す。"""
         kind = event.get("event", "")
@@ -122,7 +133,7 @@ class ChatService:
             chunk = event.get("data", {}).get("chunk")
             if chunk and hasattr(chunk, "content") and chunk.content:
                 if not chunk.tool_call_chunks:
-                    full_response[0] += chunk.content
+                    state.full_response += chunk.content
                     await queue.put(StreamEvent(
                         type=StreamEventType.TOKEN,
                         content=chunk.content,
@@ -161,8 +172,8 @@ class ChatService:
                 type=StreamEventType.TOOL_END,
                 tool_name=tool_name,
             ))
-            step_count[0] += 1
-            if step_count[0] >= self.MAX_STEPS:
+            state.step_count += 1
+            if state.step_count >= self.MAX_STEPS:
                 logger.warning(
                     "Agent exceeded max steps (%d) for thread %s",
                     self.MAX_STEPS,
@@ -185,31 +196,36 @@ class ChatService:
     ) -> None:
         """イベントストリームを処理し、完了・エラーイベントを送出する共通ロジック。"""
         try:
-            full_response = [""]
-            step_count = [0]
+            state = StreamState()
             async for event in event_stream:
                 should_break = await self._process_event(
-                    event, queue, thread_id, full_response, step_count,
+                    event, queue, thread_id, state,
                 )
                 if should_break:
                     break
 
-            if full_response[0]:
+            if state.full_response:
                 await queue.put(StreamEvent(
                     type=StreamEventType.MESSAGE_COMPLETE,
-                    content=full_response[0],
+                    content=state.full_response,
                 ))
 
         except Exception as e:
-            error_str = str(e)
-            error_type = type(e).__name__
-            if "GraphInterrupt" in error_type or "interrupt" in error_str.lower():
+            # GraphInterrupt は HITL（Human-in-the-Loop）の正常な中断
+            if isinstance(e, GraphInterrupt):
                 await self._handle_interrupt(thread_id, queue, config)
             else:
-                logger.error("Agent execution error", exc_info=True)
+                error_id = str(uuid.uuid4())[:8]
+                logger.error(
+                    "Agent execution error",
+                    exc_info=True,
+                    error_id=error_id,
+                    error_type=type(e).__name__,
+                    thread_id=thread_id,
+                )
                 debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
                 if debug_mode:
-                    error_message = f"エラーが発生しました: {error_str}"
+                    error_message = f"エラーが発生しました: {str(e)}"
                 else:
                     error_message = "エラーが発生しました。しばらくしてから再度お試しください。"
                 await queue.put(StreamEvent(
@@ -227,6 +243,9 @@ class ChatService:
         image_data: str | None = None,
     ) -> None:
         """エージェントを実行しイベントをキューに送出"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         config = {"configurable": {"thread_id": thread_id}}
         
@@ -250,6 +269,9 @@ class ChatService:
         config: dict,
     ) -> None:
         """HITL中断からエージェントを再開"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         event_stream = agent.astream_events(
             Command(resume=response),
@@ -265,6 +287,9 @@ class ChatService:
         config: dict,
     ) -> None:
         """interrupt() を検出しHITLリクエストイベントを送出"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         state = agent.get_state(config)
 

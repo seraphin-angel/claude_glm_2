@@ -8,6 +8,7 @@ This module provides:
 """
 
 import time
+import uuid
 from functools import lru_cache
 from typing import Optional
 
@@ -165,8 +166,16 @@ def log_llm_call(
                 output_tokens=output_tokens,
             )
         except Exception as e:
-            logger.warning(
+            error_id = str(uuid.uuid4())[:8]
+            logger.error(
                 "Failed to record cost",
+                session_id=effective_session_id,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                error=str(e),
+                error_type=type(e).__name__,
+                error_id=error_id,
                 exc_info=True,
             )
 

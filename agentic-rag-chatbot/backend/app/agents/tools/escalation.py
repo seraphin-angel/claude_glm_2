@@ -29,7 +29,7 @@ def get_conversation_history() -> list[dict[str, str]] | None:
     Note: 実際のセッション管理システムと連携する必要があります。
     現在は簡易実装としてNoneを返します。
     """
-    # TODO: 実際のセッション/チェックポイントから履歴を取得
+    # NOTE: 会話履歴の自動取得は未実装です（制限事項としてREADMEに記載済み）
     return None
 
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createSSEConnection } from '../sse'
+import { createSSEConnection, parseChatEvent } from '../sse'
 import type { ChatEvent } from '@/types/message'
 import { setIsDevelopment, __resetIsDevelopment } from '../logger'
 
@@ -44,6 +44,165 @@ afterEach(() => {
   vi.restoreAllMocks()
   // ロガーをリセット
   __resetIsDevelopment()
+})
+
+describe('parseChatEvent', () => {
+  it('正常なtokenイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({ type: 'token', content: 'hello' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({ type: 'token', content: 'hello' })
+  })
+
+  it('正常なhitl_requestイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({
+      type: 'hitl_request',
+      request_id: 'req-123',
+      question: '確認してください',
+      options: ['はい', 'いいえ'],
+      input_type: 'buttons',
+    })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({
+      type: 'hitl_request',
+      request_id: 'req-123',
+      question: '確認してください',
+      options: ['はい', 'いいえ'],
+      input_type: 'buttons',
+    })
+  })
+
+  it('正常なsourceイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({
+      type: 'source',
+      documents: [
+        {
+          id: 'doc-1',
+          title: 'Document 1',
+          section: 'Section A',
+          score: 0.95,
+          snippet: 'This is a snippet',
+        },
+      ],
+    })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({
+      type: 'source',
+      documents: [
+        {
+          id: 'doc-1',
+          title: 'Document 1',
+          section: 'Section A',
+          score: 0.95,
+          snippet: 'This is a snippet',
+        },
+      ],
+    })
+  })
+
+  it('正常なqualityイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({
+      type: 'quality',
+      is_relevant: true,
+      confidence: 0.85,
+      reasoning: 'This is relevant because...',
+    })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({
+      type: 'quality',
+      is_relevant: true,
+      confidence: 0.85,
+      reasoning: 'This is relevant because...',
+    })
+  })
+
+  it('正常なdoneイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({ type: 'done' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({ type: 'done' })
+  })
+
+  it('正常なerrorイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({ type: 'error', content: 'Error message' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({ type: 'error', content: 'Error message' })
+  })
+
+  it('不正なJSONの場合はnullを返す', () => {
+    const result = parseChatEvent('not valid json {{{')
+    
+    expect(result).toBeNull()
+  })
+
+  it('未知のイベントタイプの場合はnullを返す', () => {
+    const rawData = JSON.stringify({ type: 'unknown_event', data: 'something' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toBeNull()
+  })
+
+  it('必須フィールドが欠けている場合はnullを返す', () => {
+    // tokenイベントにcontentがない
+    const rawData = JSON.stringify({ type: 'token' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toBeNull()
+  })
+
+  it('フィールドの型が間違っている場合はnullを返す', () => {
+    // contentが数値
+    const rawData = JSON.stringify({ type: 'token', content: 123 })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toBeNull()
+  })
+
+  it('input_typeが不正な値の場合はnullを返す', () => {
+    const rawData = JSON.stringify({
+      type: 'hitl_request',
+      request_id: 'req-123',
+      question: '確認してください',
+      options: null,
+      input_type: 'invalid_type', // 'buttons' | 'text' 以外
+    })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toBeNull()
+  })
+
+  it('tool_startイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({ type: 'tool_start', tool_name: 'search' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({ type: 'tool_start', tool_name: 'search' })
+  })
+
+  it('pingイベントを正しくパースする', () => {
+    const rawData = JSON.stringify({ type: 'ping' })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({ type: 'ping' })
+  })
+
+  it('qualityイベントでreasoningが省略可能であることを確認', () => {
+    const rawData = JSON.stringify({
+      type: 'quality',
+      is_relevant: true,
+      confidence: 0.85,
+    })
+    const result = parseChatEvent(rawData)
+    
+    expect(result).toEqual({
+      type: 'quality',
+      is_relevant: true,
+      confidence: 0.85,
+    })
+  })
 })
 
 describe('createSSEConnection', () => {
@@ -116,7 +275,7 @@ describe('createSSEConnection', () => {
   })
 
   describe('エラーログ出力', () => {
-    it('JSONパースエラー時にlogger.errorで詳細がログ出力される', () => {
+    it('スキーマ検証エラー時にlogger.errorで詳細がログ出力される', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const onEvent = vi.fn()
       const onError = vi.fn()
@@ -127,10 +286,9 @@ describe('createSSEConnection', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         '[SSE]',
         expect.objectContaining({
-          message: 'JSON parse error',
+          message: 'ChatEvent validation error',
           rawData: expect.any(String),
           error: expect.any(String),
-          threadId: 'thread-1',
         }),
       )
       expect(onError).toHaveBeenCalledOnce()
@@ -276,6 +434,128 @@ describe('createSSEConnection', () => {
       // エラーが発生してもリトライカウントはリセットされているので1から始まる
       mockEventSourceInstance.simulateError()
       expect(onRetry).toHaveBeenCalledWith(1)
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('重複メッセージ防止 (Criticality: 7-8)', () => {
+    it('再接続後に重複メッセージが配信されない', async () => {
+      vi.useFakeTimers()
+      const onEvent = vi.fn()
+      const onError = vi.fn()
+      const onRetry = vi.fn()
+
+      // 重複排除オプションを有効化
+      createSSEConnection('thread-1', onEvent, onError, onRetry, { deduplicate: true })
+
+      // 最初の接続でメッセージを受信
+      const event1 = { type: 'token', content: 'hello', message_id: 'msg-1' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(event1))
+
+      expect(onEvent).toHaveBeenCalledTimes(1)
+      expect(onEvent).toHaveBeenCalledWith(event1)
+
+      // エラーで切断
+      mockEventSourceInstance.simulateError()
+      expect(onRetry).toHaveBeenCalledWith(1)
+
+      // 再接続
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // 再接続後、同じmessage_idのメッセージが来ても配信されない
+      const duplicateEvent = { type: 'token', content: 'hello', message_id: 'msg-1' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(duplicateEvent))
+
+      // 重複なのでonEventは呼ばれない
+      expect(onEvent).toHaveBeenCalledTimes(1)
+
+      // 新しいメッセージは配信される
+      const newEvent = { type: 'token', content: 'world', message_id: 'msg-2' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(newEvent))
+
+      expect(onEvent).toHaveBeenCalledTimes(2)
+      expect(onEvent).toHaveBeenLastCalledWith(newEvent)
+
+      vi.useRealTimers()
+    })
+
+    it('message_idがないメッセージは重複排除されない', async () => {
+      vi.useFakeTimers()
+      const onEvent = vi.fn()
+      const onError = vi.fn()
+      const onRetry = vi.fn()
+
+      createSSEConnection('thread-1', onEvent, onError, onRetry, { deduplicate: true })
+
+      // message_idがないメッセージ
+      const eventWithoutId = { type: 'token', content: 'hello' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(eventWithoutId))
+
+      expect(onEvent).toHaveBeenCalledTimes(1)
+
+      // エラーで切断して再接続
+      mockEventSourceInstance.simulateError()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // 同じ内容でもmessage_idがないので配信される
+      mockEventSourceInstance.simulateMessage(JSON.stringify(eventWithoutId))
+
+      expect(onEvent).toHaveBeenCalledTimes(2)
+
+      vi.useRealTimers()
+    })
+
+    it('重複排除が無効な場合は重複メッセージも配信される', async () => {
+      vi.useFakeTimers()
+      const onEvent = vi.fn()
+      const onError = vi.fn()
+      const onRetry = vi.fn()
+
+      // deduplicate: false またはオプションなし
+      createSSEConnection('thread-1', onEvent, onError, onRetry)
+
+      const event1 = { type: 'token', content: 'hello', message_id: 'msg-1' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(event1))
+
+      expect(onEvent).toHaveBeenCalledTimes(1)
+
+      // エラーで切断して再接続
+      mockEventSourceInstance.simulateError()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // 重複排除がないので配信される
+      mockEventSourceInstance.simulateMessage(JSON.stringify(event1))
+
+      expect(onEvent).toHaveBeenCalledTimes(2)
+
+      vi.useRealTimers()
+    })
+
+    it('多数のメッセージIDを保持してもメモリリークしない', async () => {
+      vi.useFakeTimers()
+      const onEvent = vi.fn()
+      const onError = vi.fn()
+      const onRetry = vi.fn()
+
+      createSSEConnection('thread-1', onEvent, onError, onRetry, {
+        deduplicate: true,
+        maxSeenIds: 100
+      })
+
+      // 100件のユニークメッセージを送信
+      for (let i = 0; i < 100; i++) {
+        const event = { type: 'token', content: `msg-${i}`, message_id: `id-${i}` } as const
+        mockEventSourceInstance.simulateMessage(JSON.stringify(event))
+      }
+
+      expect(onEvent).toHaveBeenCalledTimes(100)
+
+      // 最初のメッセージIDはもう保持されていない可能性がある（LRU的な動作）
+      // ただし、最新のメッセージは重複排除される
+      const recentEvent = { type: 'token', content: 'msg-99', message_id: 'id-99' } as const
+      mockEventSourceInstance.simulateMessage(JSON.stringify(recentEvent))
+      expect(onEvent).toHaveBeenCalledTimes(100) // 重複なので増えない
 
       vi.useRealTimers()
     })

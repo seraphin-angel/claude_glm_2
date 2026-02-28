@@ -56,7 +56,7 @@ LangGraph の ReAct エージェントが自律的にナレッジベース検索
 
 **バックエンド**
 - FastAPI + Python 3.11+
-- LangGraph ReAct Agent（11ツール: 8コアツール + analyze_image, check_input_safety, check_output_safety）
+- LangGraph ReAct Agent（8コアツール（エージェント内）+ 3スタンドアロンツール（API/ミドルウェアレベル））
 - ChromaDB（ベクトルストア）
 - OpenAI GPT-4o-mini / GPT-4o
 - PostgreSQL（LangGraph Checkpointer）
@@ -226,3 +226,12 @@ uv run pytest tests/ -v --cov=app --cov-report=term-missing
 3. サポート外: 「明日の天気は？」→ サポート範囲外メッセージ
 4. 会話継続: 「もっと詳しく」→ 前のコンテキストを考慮した回答
 5. 画像添付: スクリーンショットをアップロード → Vision API による解析と回答
+
+## 制限事項
+
+### エスカレーション機能
+- 会話履歴の自動取得は未実装です。エスカレーション時のサマリーには直近のメッセージのみが含まれます。
+
+### マルチチャネル連携
+- Slack/LINE/Email Webhookはメッセージ受信のみ対応しています。
+- 受信したメッセージへの自動応答生成は今後のリリースで予定されています。

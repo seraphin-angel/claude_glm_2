@@ -1,9 +1,19 @@
 import { useState, useCallback, useRef } from 'react'
 import type { Message, ChatStatus, HITLRequest, ChatEvent, SourceDocument, QualityScore } from '@/types/message'
+import { createUserMessage, createAssistantMessage } from '@/types/message'
 import { sendMessage, resumeChat } from '@/lib/api'
 import type { SSEConnection } from '@/lib/sse'
 import { createSSEConnection, closeSSEConnection } from '@/lib/sse'
 import { logger } from '@/lib/logger'
+
+/**
+ * エラーオブジェクトからユーザー表示用のメッセージを抽出する
+ */
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  return '予期しないエラーが発生しました'
+}
 
 interface ToolHistoryEntry {
   readonly name: string
@@ -49,18 +59,16 @@ export function useChat(): UseChatReturn {
   const handleEvent = useCallback((event: ChatEvent) => {
     switch (event.type) {
       case 'token':
-        if (event.content) {
-          setError(null)
-          streamingContentRef.current += event.content
-          setStreamingContent(streamingContentRef.current)
-        }
+        // Discriminated Union: content is guaranteed to be string
+        setError(null)
+        streamingContentRef.current += event.content
+        setStreamingContent(streamingContentRef.current)
         break
 
       case 'tool_start':
-        if (event.tool_name) {
-          setActiveTool(event.tool_name)
-          setToolHistory((prev) => [...prev, { name: event.tool_name!, status: 'running' }])
-        }
+        // Discriminated Union: tool_name is guaranteed to be string
+        setActiveTool(event.tool_name)
+        setToolHistory((prev) => [...prev, { name: event.tool_name, status: 'running' }])
         break
 
       case 'tool_end':
@@ -73,46 +81,40 @@ export function useChat(): UseChatReturn {
         break
 
       case 'source':
-        if (event.documents) {
-          currentSourcesRef.current = event.documents
-        }
+        // Discriminated Union: documents is guaranteed to be readonly SourceDocument[]
+        currentSourcesRef.current = [...event.documents]
         break
 
       case 'quality':
-        if (event.is_relevant !== undefined && event.confidence !== undefined) {
-          currentQualityRef.current = {
-            is_relevant: event.is_relevant,
-            confidence: event.confidence,
-            reasoning: event.reasoning ?? '',
-          }
+        // Discriminated Union: is_relevant and confidence are guaranteed
+        currentQualityRef.current = {
+          is_relevant: event.is_relevant,
+          confidence: event.confidence,
+          reasoning: event.reasoning ?? '',
         }
         break
 
       case 'hitl_request':
-        if (!event.request_id || !event.question) {
-          break
-        }
+        // Discriminated Union: all fields are guaranteed
         closeSSEConnection(eventSourceRef.current)
         eventSourceRef.current = null
         setCurrentHITL({
           request_id: event.request_id,
           question: event.question,
-          options: event.options ?? null,
-          input_type: (event.input_type as 'buttons' | 'text') ?? 'text',
+          options: event.options,
+          input_type: event.input_type,
         })
         updateStatus('hitl_pending')
         break
 
       case 'message_complete':
-        if (event.content) {
-          const assistantMessage: Message = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: event.content,
-            timestamp: new Date(),
-            sources: currentSourcesRef.current.length > 0 ? currentSourcesRef.current : undefined,
-            qualityScore: currentQualityRef.current ?? undefined,
-          }
+        // Discriminated Union: content is guaranteed to be string
+        {
+          const assistantMessage = createAssistantMessage(
+            event.content,
+            currentSourcesRef.current.length > 0 ? currentSourcesRef.current : undefined,
+            currentQualityRef.current ?? undefined,
+          )
           setMessages((prev) => [...prev, assistantMessage])
         }
         setStreamingContent('')
@@ -123,7 +125,8 @@ export function useChat(): UseChatReturn {
         break
 
       case 'error':
-        setError(event.content ?? 'エラーが発生しました')
+        // Discriminated Union: content is guaranteed to be string
+        setError(event.content)
         updateStatus('error')
         setStreamingContent('')
         streamingContentRef.current = ''
@@ -171,14 +174,18 @@ export function useChat(): UseChatReturn {
   }, [handleEvent, updateStatus])
 
   const send = useCallback(async (content: string) => {
+    // 同時送信防止: streaming中またはhitl_pending中は送信をブロック
+    if (statusRef.current === 'streaming' || statusRef.current === 'hitl_pending') {
+      logger.warn('useChat', {
+        message: 'Send blocked due to ongoing operation',
+        status: statusRef.current,
+      })
+      return
+    }
+
     setToolHistory([])
     // ユーザーメッセージを追加
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      timestamp: new Date(),
-    }
+    const userMessage = createUserMessage(content)
     setMessages((prev) => [...prev, userMessage])
     updateStatus('streaming')
     setError(null)
@@ -199,22 +206,13 @@ export function useChat(): UseChatReturn {
         updateStatus('error')
       }
     } catch (err) {
-      let errorMessage: string
-      if (err instanceof Error) {
-        errorMessage = err.message
-        logger.error('useChat', {
-          message: 'Send message error',
-          error: err.message,
-          stack: err.stack,
-          threadId: threadIdRef.current,
-        })
-      } else if (typeof err === 'string') {
-        errorMessage = err
-        logger.error('useChat', { message: 'Unexpected error type', error: err })
-      } else {
-        errorMessage = '予期しないエラーが発生しました'
-        logger.error('useChat', { message: 'Unexpected error type', error: String(err) })
-      }
+      const errorMessage = getErrorMessage(err)
+      logger.error('useChat', {
+        message: 'Send message error',
+        error: errorMessage,
+        errorType: err instanceof Error ? err.constructor.name : typeof err,
+        threadId: threadIdRef.current,
+      })
       setError(errorMessage)
       updateStatus('error')
     }
@@ -261,12 +259,7 @@ export function useChat(): UseChatReturn {
     const savedThreadId = threadIdRef.current
 
     // ユーザーの回答をメッセージとして追加
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: response,
-      timestamp: new Date(),
-    }
+    const userMessage = createUserMessage(response)
     setMessages((prev) => [...prev, userMessage])
     setCurrentHITL(null)
     updateStatus('streaming')
@@ -285,21 +278,13 @@ export function useChat(): UseChatReturn {
         updateStatus('error')
       }
     } catch (err) {
-      let errorMessage: string
-      if (err instanceof Error) {
-        errorMessage = err.message
-        logger.error('useChat', {
-          message: 'RespondToHITL error',
-          error: err.message,
-          stack: err.stack,
-          threadId: savedThreadId,
-        })
-      } else if (typeof err === 'string') {
-        errorMessage = err
-      } else {
-        errorMessage = '予期しないエラーが発生しました'
-        logger.error('useChat', { message: 'RespondToHITL unexpected error type', error: String(err) })
-      }
+      const errorMessage = getErrorMessage(err)
+      logger.error('useChat', {
+        message: 'RespondToHITL error',
+        error: errorMessage,
+        errorType: err instanceof Error ? err.constructor.name : typeof err,
+        threadId: savedThreadId,
+      })
       setError(errorMessage)
       updateStatus('error')
     }

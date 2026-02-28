@@ -137,6 +137,7 @@ class PromptService:
 
         Raises:
             ValueError: プロンプトが存在しない場合
+            IOError: 保存に失敗した場合
         """
         prompts = self._data.get("prompts", {})
         prompt_data = prompts.get(prompt_id)
@@ -187,6 +188,7 @@ class PromptService:
 
         Raises:
             ValueError: プロンプトまたはバージョンが存在しない場合
+            IOError: 保存に失敗した場合
         """
         prompt = self.get_prompt(prompt_id)
         if prompt is None:
@@ -268,7 +270,11 @@ class PromptService:
             self._data = {"prompts": {}}
 
     def _save(self) -> None:
-        """データをファイルに保存"""
+        """データをファイルに保存
+
+        Raises:
+            IOError: 保存に失敗した場合。呼び出し元で適切にハンドリングすること。
+        """
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             self._persist_path.write_text(
@@ -277,6 +283,8 @@ class PromptService:
             )
         except Exception as e:
             logger.error(
-                "Failed to save prompts file",
+                f"Failed to save prompts file - DATA LOSS RISK: "
+                f"path={self._persist_path}, error={e}",
                 exc_info=True,
             )
+            raise IOError(f"Failed to save prompt data: {e}") from e

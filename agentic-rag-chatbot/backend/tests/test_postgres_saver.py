@@ -68,8 +68,8 @@ class TestPostgresSaverIntegration:
         reset_agent()
 
     @pytest.mark.asyncio
-    async def test_postgres_saver_fallback_on_connection_error(self):
-        """PostgreSQL 接続エラー時のフォールバックをテスト"""
+    async def test_postgres_saver_raises_runtime_error_on_connection_error(self):
+        """PostgreSQL 接続エラー時に RuntimeError が発生することをテスト（fail-fast）"""
         from app.agents.agent import reset_agent, use_postgres_saver, get_agent
 
         # リセット
@@ -89,9 +89,9 @@ class TestPostgresSaverIntegration:
                     "postgresql://invalid:invalid@invalid:5432/invalid"
                 )
 
-                # エージェントを取得（フォールバックが動作するはず）
-                agent = await get_agent()
-                assert agent is not None
+                # RuntimeError が発生することを期待
+                with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                    await get_agent()
 
         # クリーンアップ
         reset_agent()
@@ -153,6 +153,253 @@ class TestPostgresSaverConfiguration:
 
         assert "asyncpg" in dependency_names
         assert "langgraph-checkpoint-postgres" in dependency_names
+
+
+class TestPersistenceHealthCheck:
+    """is_persistence_healthy() 機能のテスト（TDD: Issue #1）"""
+
+    def test_is_persistence_healthy_function_exists(self):
+        """is_persistence_healthy 関数が存在することをテスト"""
+        from app.agents.agent import is_persistence_healthy
+
+        assert callable(is_persistence_healthy)
+
+    def test_is_persistence_healthy_returns_bool(self):
+        """is_persistence_healthy が bool を返すことをテスト"""
+        from app.agents.agent import reset_agent, is_persistence_healthy
+
+        reset_agent()
+        result = is_persistence_healthy()
+        assert isinstance(result, bool)
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_true_with_memory_saver(self):
+        """MemorySaver モードでは persistence_healthy が True を返すことをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_memory_saver,
+            get_agent,
+            is_persistence_healthy,
+        )
+
+        reset_agent()
+        use_memory_saver()
+
+        agent = await get_agent()
+        assert agent is not None
+
+        # MemorySaver モードでは明示的に設定された場合は True
+        result = is_persistence_healthy()
+        assert result is True
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_true_on_postgres_success(self):
+        """PostgresSaver 成功時に persistence_healthy が True を返すことをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_postgres_saver,
+            get_agent,
+            is_persistence_healthy,
+        )
+
+        reset_agent()
+        use_postgres_saver()
+
+        # MemorySaver を使用するようにモック（PostgresSaver 成功をシミュレート）
+        with patch("app.agents.agent._use_postgres", False):
+            agent = await get_agent()
+            assert agent is not None
+
+            # PostgresSaver 成功時は True を期待
+            result = is_persistence_healthy()
+            assert result is True
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_raises_on_postgres_failure(self):
+        """PostgresSaver 初期化失敗時に RuntimeError が発生することをテスト（fail-fast）"""
+        from app.agents.agent import (
+            reset_agent,
+            use_postgres_saver,
+            get_agent,
+        )
+
+        reset_agent()
+        use_postgres_saver()
+
+        # PostgresSaver でエラーが発生するようにモック
+        with patch(
+            "app.config.settings.get_settings"
+        ) as mock_settings:
+            mock_settings.return_value.database_url = (
+                "postgresql://invalid:invalid@invalid:5432/invalid"
+            )
+
+            # PostgresSaver のインポートでエラーを発生させる
+            with patch.dict(
+                "sys.modules",
+                {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+            ):
+                # RuntimeError が発生することを期待（フォールバックなし）
+                with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                    await get_agent()
+
+        reset_agent()
+
+
+class TestPersistenceFailFastLogging:
+    """PostgresSaver 初期化失敗時の CRITICAL ログ出力テスト（fail-fast）"""
+
+    @pytest.mark.asyncio
+    async def test_failure_emits_critical_log(self, caplog):
+        """PostgresSaver 初期化失敗時に CRITICAL レベルのログが出力されることをテスト"""
+        import logging
+        from app.agents.agent import reset_agent, use_postgres_saver, get_agent
+
+        reset_agent()
+        use_postgres_saver()
+
+        # CRITICAL レベル以上のログをキャプチャ
+        with caplog.at_level(logging.CRITICAL, logger="app.agents.agent"):
+            # PostgresSaver でエラーが発生するようにモック
+            with patch(
+                "app.config.settings.get_settings"
+            ) as mock_settings:
+                mock_settings.return_value.database_url = (
+                    "postgresql://invalid:invalid@invalid:5432/invalid"
+                )
+
+                # PostgresSaver のインポートでエラーを発生させる
+                with patch.dict(
+                    "sys.modules",
+                    {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+                ):
+                    with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                        await get_agent()
+
+        # CRITICAL ログが1件以上出力されていることを確認
+        critical_records = [
+            r for r in caplog.records
+            if r.levelno >= logging.CRITICAL
+        ]
+        assert len(critical_records) >= 1, (
+            f"Expected at least 1 CRITICAL log, got {len(critical_records)}. "
+            f"All records: {[r.message[:50] for r in caplog.records]}"
+        )
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_failure_log_contains_error_id(self, caplog):
+        """失敗ログに error_id='PERSISTENCE_INIT_FAILED' が含まれることをテスト"""
+        import logging
+        from app.agents.agent import reset_agent, use_postgres_saver, get_agent
+
+        reset_agent()
+        use_postgres_saver()
+
+        with caplog.at_level(logging.ERROR, logger="app.agents.agent"):
+            with patch(
+                "app.config.settings.get_settings"
+            ) as mock_settings:
+                mock_settings.return_value.database_url = (
+                    "postgresql://invalid:invalid@invalid:5432/invalid"
+                )
+
+                with patch.dict(
+                    "sys.modules",
+                    {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+                ):
+                    with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                        await get_agent()
+
+        # error_id=PERSISTENCE_INIT_FAILED を含むログを検索
+        # Python logging の extra は属性として直接追加される
+        found_error_id = False
+        for record in caplog.records:
+            if record.levelno >= logging.ERROR:
+                if getattr(record, 'error_id', None) == 'PERSISTENCE_INIT_FAILED':
+                    found_error_id = True
+                    break
+
+        assert found_error_id, (
+            f"No log with error_id='PERSISTENCE_INIT_FAILED' found. "
+            f"Record attributes: {[(r.message[:30], getattr(r, 'error_id', None)) for r in caplog.records if r.levelno >= logging.ERROR]}"
+        )
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_failure_log_contains_severity_critical(self, caplog):
+        """失敗ログに severity='CRITICAL' が含まれることをテスト"""
+        import logging
+        from app.agents.agent import reset_agent, use_postgres_saver, get_agent
+
+        reset_agent()
+        use_postgres_saver()
+
+        with caplog.at_level(logging.ERROR, logger="app.agents.agent"):
+            with patch(
+                "app.config.settings.get_settings"
+            ) as mock_settings:
+                mock_settings.return_value.database_url = (
+                    "postgresql://invalid:invalid@invalid:5432/invalid"
+                )
+
+                with patch.dict(
+                    "sys.modules",
+                    {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+                ):
+                    with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                        await get_agent()
+
+        # severity=CRITICAL を含むログを検索
+        found_severity = False
+        for record in caplog.records:
+            if record.levelno >= logging.ERROR:
+                if getattr(record, 'severity', None) == 'CRITICAL':
+                    found_severity = True
+                    break
+
+        assert found_severity, (
+            f"No log with severity='CRITICAL' found. "
+            f"Record attributes: {[(r.message[:30], getattr(r, 'severity', None)) for r in caplog.records if r.levelno >= logging.ERROR]}"
+        )
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_failure_raises_runtime_error(self, caplog):
+        """初期化失敗時に RuntimeError が発生することをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_postgres_saver,
+            get_agent,
+        )
+
+        reset_agent()
+        use_postgres_saver()
+
+        with patch(
+            "app.config.settings.get_settings"
+        ) as mock_settings:
+            mock_settings.return_value.database_url = (
+                "postgresql://invalid:invalid@invalid:5432/invalid"
+            )
+
+            with patch.dict(
+                "sys.modules",
+                {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+            ):
+                # RuntimeError が発生することを期待（フォールバックなし）
+                with pytest.raises(RuntimeError, match="Database persistence unavailable"):
+                    await get_agent()
+
+        reset_agent()
 
 
 @pytest.mark.integration
