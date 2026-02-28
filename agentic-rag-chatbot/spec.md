@@ -1,8 +1,8 @@
 # Agentic RAG チャットボット — システム仕様書
 
-> バージョン: 0.3.0
+> バージョン: 0.4.0
 > 作成日: 2026-02-22
-> 最終更新: 2026-02-25 (P2完了反映)
+> 最終更新: 2026-02-28 (P3完了反映)
 
 ---
 
@@ -43,6 +43,15 @@
 | コスト可視化 | トークン消費量の記録とモデル別コスト集計 |
 | 構造化ロギング | structlog による JSON 形式の構造化ログとリクエストトレーシング |
 | プロアクティブ FAQ | ページ URL に基づく FAQ 推薦とトップ質問表示 |
+| マルチテナント | テナントごとの設定分離・ミドルウェアによるテナント識別 (P3) |
+| GDPR/データ保持 | テナント別保持ポリシー・ユーザーデータ削除・監査ログ (P3) |
+| CRM 連携 | Zendesk アダプターによるチケット連携 (P3) |
+| 画像添付 | Vision API によるスクリーンショット解析 (P3) |
+| 多言語対応 | i18next による日本語/英語 UI 切り替え (P3) |
+| マルチチャネル | LINE/Slack/Email Webhook アダプター (P3) |
+| パーソナライゼーション | ユーザープロファイル・推薦 (P3) |
+| A/B テスト | 実験管理・バリアント割り当て・メトリクス (P3) |
+| ガードレール | ジェイルブレイク対策・PII 検出・入出力安全性チェック (P3) |
 
 ### 技術スタック一覧
 
@@ -84,6 +93,10 @@
 | Markdownレンダリング | react-markdown | ^10.1.0 |
 | GFM対応 | remark-gfm | ^4.0.1 |
 | タイポグラフィ | @tailwindcss/typography | ^0.5.16" |
+| 多言語対応 | i18next | ^25.8.13 |
+| 多言語対応 | react-i18next | ^16.5.4 |
+| 画像アップロード | react-dropzone | ^15.0.0 |
+| Markdown サニタイズ | rehype-sanitize | ^6.0.0 |
 
 ---
 
@@ -191,7 +204,14 @@ agentic-rag-chatbot/
 │   │   │   ├── feedback.py          # フィードバック API (P1)
 │   │   │   ├── knowledge.py         # ナレッジ管理 API (P1)
 │   │   │   ├── admin.py             # 管理者 API - ナレッジギャップ (P1)
-│   │   │   └── faq.py               # FAQ API エンドポイント (P2)
+│   │   │   ├── faq.py               # FAQ API エンドポイント (P2)
+│   │   │   ├── gdpr.py              # GDPR API (P3)
+│   │   │   ├── tenant.py            # テナント API (P3)
+│   │   │   ├── channels.py          # チャネル API (P3)
+│   │   │   ├── experiments.py       # 実験 API (P3)
+│   │   │   ├── guardrails.py        # ガードレール API (P3)
+│   │   │   ├── user.py              # ユーザー API (P3)
+│   │   │   └── integrations.py      # インテグレーション API (P3)
 │   │   ├── auth/
 │   │   │   ├── __init__.py          # 公開関数エクスポート
 │   │   │   └── jwt_handler.py       # JWT トークン生成・検証
@@ -210,14 +230,39 @@ agentic-rag-chatbot/
 │   │   │       ├── generate.py      # 回答生成ツール (カテゴリ別プロンプト)
 │   │   │       ├── quality.py       # 品質チェックツール
 │   │   │       ├── ask_human.py     # HITL ツール
-│   │   │       └── escalation.py    # エスカレーションツール (P2)
+│   │   │       ├── escalation.py    # エスカレーションツール (P2)
+│   │   │       ├── content_safety.py # コンテンツ安全性ツール (P3)
+│   │   │       └── image_analysis.py # 画像解析ツール (P3)
+│   │   ├── middleware/
+│   │   │   ├── __init__.py
+│   │   │   ├── tenant.py            # テナント識別ミドルウェア (P3)
+│   │   │   ├── guardrails.py        # ガードレールミドルウェア (P3)
+│   │   │   └── user_context.py      # ユーザーコンテキストミドルウェア (P3)
+│   │   ├── channels/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py              # チャネルアダプター基底クラス (P3)
+│   │   │   ├── models.py            # チャネルモデル (P3)
+│   │   │   ├── line_adapter.py      # LINE アダプター (P3)
+│   │   │   ├── slack_adapter.py     # Slack アダプター (P3)
+│   │   │   ├── email_adapter.py     # Email アダプター (P3)
+│   │   │   └── mock_adapter.py      # テスト用モックアダプター (P3)
+│   │   ├── integrations/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py              # 連携基底クラス (P3)
+│   │   │   ├── zendesk.py           # Zendesk 連携 (P3)
+│   │   │   └── mock_adapter.py      # テスト用モック (P3)
 │   │   ├── config/
 │   │   │   └── settings.py          # 設定管理 (pydantic-settings)
 │   │   ├── rate_limit.py              # slowapi Limiter インスタンス
 │   │   ├── models/
 │   │   │   ├── chat.py              # ChatRequest / ChatStartResponse
 │   │   │   ├── messages.py          # StreamEvent / StreamEventType
-│   │   │   └── hitl.py              # HITLRequest / HITLResponse / ResumeRequest
+│   │   │   ├── hitl.py              # HITLRequest / HITLResponse / ResumeRequest
+│   │   │   ├── tenant.py            # テナントモデル (P3)
+│   │   │   ├── user.py              # ユーザーモデル (P3)
+│   │   │   ├── experiment.py        # 実験モデル (P3)
+│   │   │   ├── guardrails.py        # ガードレールモデル (P3)
+│   │   │   └── retention.py         # 保持ポリシーモデル (P3)
 │   │   ├── rag/
 │   │   │   ├── vector_store.py      # ChromaDB ラッパー (multilingual-e5-base)
 │   │   │   ├── bm25_store.py        # BM25 インデックス (P1)
@@ -232,7 +277,17 @@ agentic-rag-chatbot/
 │   │       ├── cost_service.py      # LLM コスト可視化 (P2)
 │   │       ├── escalation_service.py # エスカレーション管理 (P2)
 │   │       ├── faq_service.py       # FAQ サービス (P2)
-│   │       └── prompt_service.py    # プロンプト管理 (P2)
+│   │       ├── prompt_service.py    # プロンプト管理 (P2)
+│   │       ├── tenant_service.py    # テナントサービス (P3)
+│   │       ├── user_service.py      # ユーザーサービス (P3)
+│   │       ├── experiment_service.py # 実験サービス (P3)
+│   │       ├── guardrails_service.py # ガードレールサービス (P3)
+│   │       ├── retention_service.py # データ保持サービス (P3)
+│   │       ├── channel_service.py   # チャネルサービス (P3)
+│   │       ├── integration_service.py # 連携サービス (P3)
+│   │       ├── statistics_service.py # 統計サービス (P3)
+│   │       ├── metrics_service.py   # メトリクスサービス (P3)
+│   │       └── language_service.py  # 言語サービス (P3)
 │   ├── data/
 │   │   ├── chroma_db/               # ChromaDB 永続化ディレクトリ
 │   │   ├── feedback.json            # フィードバックデータ (P1)
@@ -267,6 +322,25 @@ agentic-rag-chatbot/
 │   │   ├── test_faq_api.py          # FAQ API テスト (P2)
 │   │   ├── test_prompt_service.py   # プロンプト管理テスト (P2)
 │   │   ├── test_settings.py         # 設定値テスト（P2項目含む）(P2)
+│   │   ├── test_channels.py         # チャネルアダプターテスト (P3)
+│   │   ├── test_content_safety.py   # コンテンツ安全性テスト (P3)
+│   │   ├── test_crm_integration.py  # CRM連携テスト (P3)
+│   │   ├── test_experiment_api.py   # 実験APIテスト (P3)
+│   │   ├── test_experiment_models.py # 実験モデルテスト (P3)
+│   │   ├── test_experiment_service.py # 実験サービステスト (P3)
+│   │   ├── test_guardrails.py       # ガードレールテスト (P3)
+│   │   ├── test_guardrails_api.py   # ガードレールAPIテスト (P3)
+│   │   ├── test_guardrails_middleware.py # ガードレールミドルウェアテスト (P3)
+│   │   ├── test_guardrails_models.py # ガードレールモデルテスト (P3)
+│   │   ├── test_guardrails_service.py # ガードレールサービステスト (P3)
+│   │   ├── test_image_analysis.py   # 画像解析テスト (P3)
+│   │   ├── test_image_api.py        # 画像APIテスト (P3)
+│   │   ├── test_language_service.py # 言語サービステスト (P3)
+│   │   ├── test_metrics_service.py  # メトリクスサービステスト (P3)
+│   │   ├── test_statistics_service.py # 統計サービステスト (P3)
+│   │   ├── test_tenant.py           # テナントテスト (P3)
+│   │   ├── test_user.py             # ユーザーテスト (P3)
+│   │   ├── test_user_context_middleware.py # ユーザーコンテキストミドルウェアテスト (P3)
 │   │   ├── evaluation/              # RAGAS 評価フレームワーク (P2)
 │   │   │   └── pipeline.py          # 評価パイプライン
 │   │   └── golden/
@@ -277,7 +351,13 @@ agentic-rag-chatbot/
 └── frontend/
     ├── src/
     │   ├── App.tsx                  # ルートコンポーネント
+    │   ├── i18n/
+    │   │   ├── index.ts             # i18n 設定 (P3)
+    │   │   └── locales/
+    │   │       ├── ja.json          # 日本語翻訳 (P3)
+    │   │       └── en.json          # 英語翻訳 (P3)
     │   ├── components/
+    │   │   ├── LanguageSwitcher.tsx # 言語切替コンポーネント (P3)
     │   │   ├── chat/
     │   │   │   ├── ChatWindow.tsx   # チャットメイン UI
     │   │   │   ├── MessageList.tsx  # メッセージ一覧
@@ -304,7 +384,8 @@ agentic-rag-chatbot/
     │   ├── hooks/
     │   │   ├── useChat.ts           # チャット状態管理フック
     │   │   ├── useAutoScroll.ts     # 自動スクロールフック
-    │   │   └── useWaitTimer.ts      # 待機タイマーフック (P2)
+    │   │   ├── useWaitTimer.ts      # 待機タイマーフック (P2)
+    │   │   └── useLanguage.ts       # 言語管理フック (P3)
     │   ├── lib/
     │   │   ├── api.ts               # REST API クライアント
     │   │   ├── sse.ts               # SSE 接続管理 (自動リトライ付き)
@@ -351,8 +432,44 @@ agentic-rag-chatbot/
 | PUT | `/api/admin/prompts/{prompt_id}` | JWT 必須 | プロンプト更新 (P2) |
 | POST | `/api/admin/prompts/{prompt_id}/rollback/{version}` | JWT 必須 | プロンプトロールバック (P2) |
 | GET | `/api/admin/prompts/{prompt_id}/history` | JWT 必須 | プロンプト変更履歴 (P2) |
+| POST | `/api/tenants` | JWT 必須 | テナント作成 (P3) |
+| GET | `/api/tenants` | JWT 必須 | テナント一覧取得 (P3) |
+| GET | `/api/tenants/{tenant_id}` | JWT 必須 | テナント詳細取得 (P3) |
+| PUT | `/api/tenants/{tenant_id}/config` | JWT 必須 | テナント設定更新 (P3) |
+| DELETE | `/api/tenants/{tenant_id}` | JWT 必須 | テナント無効化 (P3) |
+| GET | `/api/users/me` | JWT 必須 | 現在のユーザー情報取得 (P3) |
+| GET | `/api/users/me/history` | JWT 必須 | 会話履歴取得 (P3) |
+| PATCH | `/api/users/me/plan` | JWT 必須 | ユーザープラン更新（管理者のみ）(P3) |
+| GET | `/api/users/me/recommendations` | JWT 必須 | パーソナライズ推薦取得 (P3) |
+| POST | `/api/gdpr/policies` | JWT 必須 | データ保持ポリシー作成 (P3) |
+| GET | `/api/gdpr/policies` | JWT 必須 | 保持ポリシー一覧取得 (P3) |
+| GET | `/api/gdpr/policies/{tenant_id}/{data_type}` | JWT 必須 | 保持ポリシー取得 (P3) |
+| POST | `/api/gdpr/delete-user-data` | JWT 必須 | ユーザーデータ削除（GDPR Article 17）(P3) |
+| GET | `/api/gdpr/audit-logs` | JWT 必須 | 監査ログ取得 (P3) |
+| POST | `/api/gdpr/cleanup` | JWT 必須 | 期限切れデータクリーンアップ (P3) |
+| POST | `/api/integrations/register` | JWT 必須 | CRMアダプター登録 (P3) |
+| GET | `/api/integrations` | JWT 必須 | 登録済み連携一覧取得 (P3) |
+| DELETE | `/api/integrations/{tenant_id}` | JWT 必須 | CRMアダプター登録解除 (P3) |
+| POST | `/api/integrations/tickets` | JWT 必須 | CRMチケット作成 (P3) |
+| GET | `/api/integrations/tickets/{tenant_id}/{ticket_id}` | JWT 必須 | CRMチケット取得 (P3) |
+| POST | `/api/chat/image` | JWT 必須 | 画像アップロード (P3) |
+| POST | `/api/experiments` | JWT 必須 | 実験作成 (P3) |
+| GET | `/api/experiments` | JWT 必須 | 実験一覧取得 (P3) |
+| GET | `/api/experiments/{experiment_id}` | JWT 必須 | 実験詳細取得 (P3) |
+| PUT | `/api/experiments/{experiment_id}/status` | JWT 必須 | 実験ステータス更新 (P3) |
+| POST | `/api/experiments/{experiment_id}/assign` | JWT 必須 | バリアント割り当て (P3) |
+| POST | `/api/experiments/{experiment_id}/metrics` | JWT 必須 | メトリクス記録 (P3) |
+| GET | `/api/experiments/{experiment_id}/results` | JWT 必須 | 実験結果取得 (P3) |
+| POST | `/api/v1/guardrails/check-input` | 不要 | 入力安全性チェック (P3) |
+| POST | `/api/v1/guardrails/check-output` | 不要 | 出力安全性チェック (P3) |
+| POST | `/api/v1/guardrails/red-team` | 不要 | レッドチーミングテスト実行 (P3) |
+| POST | `/api/channels/{tenant_id}/slack/webhook` | 不要 | Slack Webhook 受信 (P3) |
+| POST | `/api/channels/{tenant_id}/line/webhook` | 不要 | LINE Webhook 受信 (P3) |
+| POST | `/api/channels/{tenant_id}/email/webhook` | 不要 | Email Webhook 受信 (P3) |
+| POST | `/api/channels/register` | JWT 必須 | チャネルアダプター登録 (P3) |
+| GET | `/api/channels/list` | JWT 必須 | 登録チャネル一覧取得 (P3) |
 
-> **認証:** `/api/health` を除く全エンドポイントに JWT Bearer トークンが必要。`Authorization: Bearer <token>` ヘッダーで送信する。
+> **認証:** `/api/health`・ガードレール・チャネル Webhook を除く全エンドポイントに JWT Bearer トークンが必要。`Authorization: Bearer <token>` ヘッダーで送信する。
 > **レート制限:** チャット系エンドポイントは `slowapi` によるレート制限あり（デフォルト: チャット `20/minute`、ストリーム `30/minute`）。
 
 #### GET /api/health
@@ -805,6 +922,16 @@ flowchart TD
 | `check_quality` | `query: str`, `answer: str`, `source_documents: list[dict]` | `dict` (passed, hallucination_score, sufficiency_score, issues) | ハルシネーション（偽情報）と充足性を評価。両スコア 0.6 以上で合格 |
 | `ask_human` | `question: str`, `options: list[str] \| None = None`, `input_type: str = "text"` | `str` | LangGraph `interrupt()` でエージェントを中断しユーザーに質問 |
 | `escalate_to_human` | `reason: str`, `urgency: str`, `summary: str = ""` | `str` | 解決不能な問題を有人サポートにエスカレーション。チケット作成・会話サマリー自動生成 |
+
+#### スタンドアロンツール（P3）
+
+エージェントの `tools` リストには含まれず、API レベル・ミドルウェアレベルで直接使用されるツール。
+
+| ツール名 | 用途 | 使用箇所 |
+|----------|------|----------|
+| `check_input_safety` | 入力のジェイルブレイク検出・PII検出 | ガードレール API / ミドルウェア (P3) |
+| `check_output_safety` | 出力の安全性チェック | ガードレール API / ミドルウェア (P3) |
+| `analyze_image` | Vision API による画像解析 | チャット API 画像エンドポイント (P3) |
 
 #### ツール詳細仕様
 
@@ -1563,7 +1690,7 @@ flowchart TD
 
 ```python
 class Settings(BaseSettings):
-    app_version: str = "0.2.0"
+    app_version: str = "0.4.0"
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-4o-mini"
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
@@ -1596,6 +1723,8 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 ```
+
+> **P3 注記:** P3 固有の環境変数は `settings.py` に追加されていない。各サービス（テナント、実験、ガードレール等）はデフォルト値をサービス内部で管理している。
 
 - `.env` ファイルまたは環境変数から設定を読み込む
 - `@lru_cache` 付きの `get_settings()` 関数でシングルトンとして提供される
@@ -1649,6 +1778,39 @@ server: {
 | `tests/test_settings.py` (更新) | 設定値（新規P2項目含む）(P2) |
 | `tests/test_tools.py` (更新) | 全 8 ツール（StructuredOutput + ChatPromptTemplate ベース）(P2) |
 | `tests/evaluation/pipeline.py` | RAGAS 評価パイプライン（4指標評価・レポート生成）(P2) |
+| `tests/test_channels.py` | チャネルアダプター（LINE/Slack/Email Webhook 処理）(P3) |
+| `tests/test_content_safety.py` | コンテンツ安全性（入力/出力チェック）(P3) |
+| `tests/test_crm_integration.py` | CRM連携（Zendesk アダプター・チケット操作）(P3) |
+| `tests/test_experiment_api.py` | 実験 API（CRUD・バリアント割り当て・メトリクス）(P3) |
+| `tests/test_experiment_models.py` | 実験モデル（Pydantic バリデーション）(P3) |
+| `tests/test_experiment_service.py` | 実験サービス（作成・ステータス管理）(P3) |
+| `tests/test_guardrails.py` | ガードレール（ジェイルブレイク・PII 検出）(P3) |
+| `tests/test_guardrails_api.py` | ガードレール API（入力/出力/レッドチーム）(P3) |
+| `tests/test_guardrails_middleware.py` | ガードレールミドルウェア（リクエスト検査）(P3) |
+| `tests/test_guardrails_models.py` | ガードレールモデル（Pydantic バリデーション）(P3) |
+| `tests/test_guardrails_service.py` | ガードレールサービス（チェックロジック）(P3) |
+| `tests/test_image_analysis.py` | 画像解析（Vision API モック）(P3) |
+| `tests/test_image_api.py` | 画像 API（アップロードエンドポイント）(P3) |
+| `tests/test_language_service.py` | 言語サービス（言語切替・翻訳）(P3) |
+| `tests/test_metrics_service.py` | メトリクスサービス（A/B テスト指標記録）(P3) |
+| `tests/test_statistics_service.py` | 統計サービス（実験結果分析）(P3) |
+| `tests/test_tenant.py` | テナント（作成・設定更新・無効化）(P3) |
+| `tests/test_retention.py` | データ保持ポリシー（保持期間・削除リクエスト・監査ログ）(P3) |
+| `tests/test_user.py` | ユーザー（プロファイル・履歴・推薦）(P3) |
+| `tests/test_user_context_middleware.py` | ユーザーコンテキストミドルウェア（コンテキスト注入）(P3) |
+
+### フロントエンドテスト
+
+| ファイル | テスト対象 |
+|---------|-----------|
+| `src/__tests__/ChatInput.test.tsx` | チャット入力（画像添付含む）(P3) |
+| `src/__tests__/MarkdownRenderer.test.tsx` | Markdown レンダリング (P3) |
+| `src/__tests__/useAutoScroll.test.ts` | 自動スクロールフック (P3) |
+| `src/__tests__/useChat.test.ts` | チャット状態管理フック (P3) |
+| `src/__tests__/useLanguage.test.tsx` | 言語管理フック (P3) |
+| `src/__tests__/api.test.ts` | REST API クライアント (P3) |
+| `src/__tests__/logger.test.ts` | ロガー (P3) |
+| `src/__tests__/sse.test.ts` | SSE 接続管理 (P3) |
 
 ### テスト設定
 
@@ -1664,7 +1826,7 @@ server: {
 
 目標カバレッジ: 80% 以上。
 
-テスト合計数: 544 テスト（P2完了時点）。
+テスト合計数: P3完了時点 **1,121 テスト**。テストファイルは 66 ファイル（バックエンド 58 ファイル + フロントエンド 8 ファイル）。
 
 各レイヤーのテスト戦略:
 - **モデルテスト**: バリデーションルール、フィールドのデフォルト値、enum 値の検証
@@ -1745,6 +1907,22 @@ server: {
 | ~~**コスト可視化**~~ | ~~LLM呼び出しのコスト管理~~ → **P2-42 で実装済み**（トークン記録・モデル別集計・上限アラート） |
 | ~~**ヘルスチェック詳細化**~~ | ~~外部サービスの疎通確認~~ → **P2-43 で実装済み**（ChromaDB・OpenAI・メモリ使用量） |
 
+### P3で完了した項目
+
+| 項目 | 内容 |
+|------|------|
+| ~~**マルチテナント対応**~~ | → **P3 で実装済み**（TenantMiddleware + テナント管理 API） |
+| ~~**GDPR/データ保持ポリシー**~~ | → **P3 で実装済み**（ポリシー管理・自動削除・監査ログ） |
+| ~~**CRM/チケットシステム連携**~~ | → **P3 で実装済み**（Zendesk アダプター） |
+| ~~**画像添付**~~ | → **P3 で実装済み**（Vision API + react-dropzone） |
+| ~~**多言語対応**~~ | → **P3 で実装済み**（i18next 日本語/英語、LanguageSwitcher コンポーネント） |
+| ~~**マルチチャネル**~~ | → **P3 で実装済み**（LINE/Slack/Email Webhook アダプター） |
+| ~~**パーソナライゼーション**~~ | → **P3 で実装済み**（UserContextMiddleware・ユーザープロファイル） |
+| ~~**A/B テスト基盤**~~ | → **P3 で実装済み**（実験作成・バリアント割り当て・メトリクス記録） |
+| ~~**ガードレール/ジェイルブレイク対策**~~ | → **P3 で実装済み**（入出力チェック・PII 検出・レッドチーミング） |
+
+> **注記:** `LanguageSwitcher` コンポーネントは実装済みだが、`App.tsx` / `ChatWindow.tsx` への UI 統合は未完了（P3制限事項）。
+
 ### 拡張ポイント
 
 | 項目 | 概要 |
@@ -1752,9 +1930,10 @@ server: {
 | ~~**永続化チェックポインタ**~~ | ~~MemorySaver を PostgresSaver / RedisSaver に~~ → **P2-40 で PostgresSaver 移行済み** |
 | **Redis キュー** | `asyncio.Queue` を Redis Pub/Sub または Redis Streams に置き換えることで水平スケーリングに対応 |
 | **ドキュメント更新API** | `PUT /api/admin/knowledge/{doc_id}` の実装 |
-| **ユーザー管理** | JWT 認証は実装済みだが、ユーザー登録・ロール管理・トークンリフレッシュは未実装 |
+| **ユーザー登録・ロール管理** | JWT 認証・UserContextMiddleware は実装済みだが、ユーザー登録フローとロールベースアクセス制御は未実装 |
 | **会話履歴の永続化** | データベースへの会話履歴の保存と検索 |
-| **マルチモーダル対応** | 画像・PDF のアップロードとナレッジベースへの取り込み |
+| ~~**マルチモーダル対応**~~ | ~~画像・PDF のアップロード~~ → **P3 で画像解析（Vision API）対応済み**。PDF 取り込みは未実装 |
+| **LanguageSwitcher UI 統合** | `LanguageSwitcher` コンポーネントを `App.tsx` / `ChatWindow.tsx` に組み込む |
 | **ストリーミング検索** | RAG 検索の段階的なストリーミング配信によるレイテンシ改善 |
 | **エージェントグラフの可視化** | LangGraph Studio との連携によるデバッグ・モニタリング |
 | ~~**レート制限**~~ | ~~API エンドポイントへのレート制限とスロットリング機能の追加~~ → **P0-02 で実装済み**（slowapi） |

@@ -70,7 +70,7 @@
 **受け入れ条件:**
 - [x] データ保持期間の設定（30日/90日/365日）→ RetentionPolicy モデル
 - [x] 期限切れデータの自動削除ジョブ → run_cleanup_job()
-- [x] ユーザーデータ削除 API（「忘れられる権利」）→ DELETE /api/gdpr/data（Article 17）
+- [x] ユーザーデータ削除 API（「忘れられる権利」）→ POST /api/gdpr/delete-user-data（Article 17）
 - [x] 削除ログの監査証跡 → AuditLogEntry モデル + GET /api/gdpr/audit-logs
 
 **依存:** P2-40（PostgresSaver）, P3-48（マルチテナント）
@@ -199,6 +199,8 @@
 - frontend/src/i18n/locales/ja.json, en.json（言語リソース）
 - frontend/src/hooks/useLanguage.ts（言語切り替えフック）
 - frontend/src/components/LanguageSwitcher.tsx
+
+制限事項: LanguageSwitcher コンポーネントは作成済みだが、App.tsx/ChatWindow.tsx への UI 統合は未完了
 ```
 
 ---
