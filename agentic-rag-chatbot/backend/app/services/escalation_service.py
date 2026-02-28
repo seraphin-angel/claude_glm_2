@@ -85,6 +85,53 @@ class EscalationService:
         logger.info(f"Created escalation ticket: {ticket_id}")
         return ticket
 
+    async def create_ticket_async(
+        self,
+        reason: str,
+        urgency: str,
+        summary: str = "",
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """エスカレーションチケットを非同期で作成する。
+
+        Args:
+            reason: エスカレーションの理由
+            urgency: 緊急度 (low, medium, high)
+            summary: 会話の要約（空の場合、conversation_historyから自動生成）
+            conversation_history: 会話履歴
+
+        Returns:
+            作成されたチケット情報
+
+        Raises:
+            ValueError: urgencyが無効な場合
+        """
+        if urgency not in VALID_URGENCIES:
+            raise ValueError(f"urgency must be one of {VALID_URGENCIES}")
+
+        # サマリーが空で会話履歴がある場合は非同期で自動生成
+        if not summary and conversation_history:
+            summary = await self._generate_summary_async(conversation_history)
+        elif not summary:
+            summary = "（詳細なし）"
+
+        ticket_id = f"ESC-{uuid.uuid4().hex[:8].upper()}"
+        ticket = {
+            "id": ticket_id,
+            "reason": reason,
+            "urgency": urgency,
+            "summary": summary,
+            "status": "open",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # 新しいチケットを先頭に追加（不変パターン）
+        self._tickets = [ticket] + self._tickets
+        self._save()
+
+        logger.info(f"Created escalation ticket: {ticket_id}")
+        return ticket
+
     def get_tickets(self, limit: int = 50) -> list[dict[str, Any]]:
         """チケット一覧を取得する。
 
@@ -110,8 +157,59 @@ class EscalationService:
                 return ticket
         return None
 
+    async def _generate_summary_async(
+        self, conversation_history: list[dict[str, str]]
+    ) -> str:
+        """LLMを使用して会話サマリーを非同期で生成する。
+
+        Args:
+            conversation_history: 会話履歴
+
+        Returns:
+            生成されたサマリー
+        """
+        if not conversation_history:
+            return "（会話履歴なし）"
+
+        try:
+            from app.agents.llm_factory import (
+                clear_session_id,
+                get_llm,
+                set_session_id,
+            )
+
+            # セッションIDを設定（トークントラッキング用）
+            session_id = str(uuid.uuid4())
+            set_session_id(session_id)
+
+            try:
+                # 会話履歴をテキスト形式に変換
+                conversation_text = "\n".join(
+                    f"{msg['role']}: {msg['content']}" for msg in conversation_history
+                )
+
+                prompt = f"""以下の会話履歴を要約してください。日本語で簡潔に（2〜3文で）回答してください。
+
+会話履歴:
+{conversation_text}
+
+要約:"""
+
+                llm = get_llm(temperature=0.3)
+                response = await llm.ainvoke(prompt)
+                return response.content.strip()
+            finally:
+                clear_session_id()
+
+        except Exception as e:
+            logger.error(
+                "Failed to generate summary for escalation ticket",
+                exc_info=True,
+            )
+            return "（サマリー生成エラー）"
+
     def _generate_summary(self, conversation_history: list[dict[str, str]]) -> str:
-        """LLMを使用して会話サマリーを生成する。
+        """LLMを使用して会話サマリーを生成する（同期版、後方互換用）。
 
         Args:
             conversation_history: 会話履歴

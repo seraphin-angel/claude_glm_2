@@ -513,7 +513,7 @@ class TestChatService:
         # DEBUG_MODE が false の場合
         os.environ.pop("DEBUG_MODE", None)
 
-        with patch("app.services.chat_service.get_agent", new_callable=AsyncMock) as mock_get_agent:
+        with patch("app.agents.agent.get_agent", new_callable=AsyncMock) as mock_get_agent:
             mock_agent = MagicMock()
             mock_agent.astream_events = AsyncMock(side_effect=RuntimeError("Internal DB connection failed at host:5432"))
             mock_get_agent.return_value = mock_agent
@@ -548,7 +548,7 @@ class TestChatService:
             for event in events:
                 yield event
 
-        with patch("app.services.chat_service.get_agent", new_callable=AsyncMock) as mock_get_agent:
+        with patch("app.agents.agent.get_agent", new_callable=AsyncMock) as mock_get_agent:
             mock_agent = MagicMock()
             mock_agent.astream_events = mock_astream_events
             mock_get_agent.return_value = mock_agent
@@ -583,3 +583,58 @@ class TestChatService:
         assert len(service._queues) == 3
         assert "thread-1" not in service._queues
         assert "thread-4" in service._queues
+
+    async def test_exception_handling_uses_type_check_for_graph_interrupt(self):
+        """GraphInterrupt例外を型チェックで判定し、適切にログ出力すること"""
+        from app.services.chat_service import ChatService
+        from langgraph.errors import GraphInterrupt
+
+        service = ChatService()
+        queue = service.get_or_create_queue("interrupt-thread")
+        config = {"configurable": {"thread_id": "interrupt-thread"}}
+
+        # GraphInterrupt を送出する非同期ジェネレーター
+        async def mock_astream_events(*args, **kwargs):
+            raise GraphInterrupt("User interrupted")
+            yield  # ジェネレーターにするため
+
+        with patch("app.agents.agent.get_agent", new_callable=AsyncMock) as mock_get_agent:
+            mock_agent = MagicMock()
+            mock_agent.astream_events = mock_astream_events
+            mock_agent.get_state = MagicMock(return_value=MagicMock(tasks=[]))
+            mock_get_agent.return_value = mock_agent
+
+            await service._run_agent("interrupt-thread", "テスト", queue, None)
+
+        # HITL_REQUEST イベントが送出されること（interrupt として処理）
+        events = []
+        while not queue.empty():
+            events.append(await queue.get())
+
+        hitl_events = [e for e in events if e.type == StreamEventType.HITL_REQUEST]
+        assert len(hitl_events) == 1
+
+    async def test_non_interrupt_exception_logs_with_error_id(self):
+        """GraphInterrupt以外の例外でエラーID付きログが出力されること"""
+        import os
+        from app.services.chat_service import ChatService
+
+        service = ChatService()
+        queue = service.get_or_create_queue("error-thread")
+
+        os.environ.pop("DEBUG_MODE", None)
+
+        with patch("app.agents.agent.get_agent", new_callable=AsyncMock) as mock_get_agent, \
+             patch("app.services.chat_service.logger") as mock_logger:
+            mock_agent = MagicMock()
+            # 通常の例外を送出
+            mock_agent.astream_events = AsyncMock(side_effect=RuntimeError("Some error"))
+            mock_get_agent.return_value = mock_agent
+
+            await service._run_agent("error-thread", "テスト", queue, None)
+
+        # logger.error が呼ばれ、error_id が含まれていることを確認
+        assert mock_logger.error.called
+        error_call = mock_logger.error.call_args
+        assert "error_id" in error_call[1]
+        assert error_call[1].get("exc_info") is True

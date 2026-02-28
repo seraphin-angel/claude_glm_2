@@ -1,15 +1,18 @@
 import asyncio
-import logging
 import os
 import uuid
 from dataclasses import dataclass, field
 
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
-from app.agents.agent import get_agent
+from app.core.logging import get_logger
 from app.models.messages import SourceDocument, StreamEvent, StreamEventType
 
-logger = logging.getLogger(__name__)
+# 循環インポート回避: get_agentは使用箇所で遅延import
+# from app.agents.agent import get_agent  # 削除
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -208,15 +211,21 @@ class ChatService:
                 ))
 
         except Exception as e:
-            error_str = str(e)
-            error_type = type(e).__name__
-            if "GraphInterrupt" in error_type or "interrupt" in error_str.lower():
+            # GraphInterrupt は HITL（Human-in-the-Loop）の正常な中断
+            if isinstance(e, GraphInterrupt):
                 await self._handle_interrupt(thread_id, queue, config)
             else:
-                logger.error("Agent execution error", exc_info=True)
+                error_id = str(uuid.uuid4())[:8]
+                logger.error(
+                    "Agent execution error",
+                    exc_info=True,
+                    error_id=error_id,
+                    error_type=type(e).__name__,
+                    thread_id=thread_id,
+                )
                 debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
                 if debug_mode:
-                    error_message = f"エラーが発生しました: {error_str}"
+                    error_message = f"エラーが発生しました: {str(e)}"
                 else:
                     error_message = "エラーが発生しました。しばらくしてから再度お試しください。"
                 await queue.put(StreamEvent(
@@ -234,6 +243,9 @@ class ChatService:
         image_data: str | None = None,
     ) -> None:
         """エージェントを実行しイベントをキューに送出"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         config = {"configurable": {"thread_id": thread_id}}
         
@@ -257,6 +269,9 @@ class ChatService:
         config: dict,
     ) -> None:
         """HITL中断からエージェントを再開"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         event_stream = agent.astream_events(
             Command(resume=response),
@@ -272,6 +287,9 @@ class ChatService:
         config: dict,
     ) -> None:
         """interrupt() を検出しHITLリクエストイベントを送出"""
+        # 循環インポート回避: 遅延import
+        from app.agents.agent import get_agent
+
         agent = await get_agent()
         state = agent.get_state(config)
 

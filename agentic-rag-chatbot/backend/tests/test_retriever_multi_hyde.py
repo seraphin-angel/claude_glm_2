@@ -165,18 +165,18 @@ class TestRetrieveWithStrategy:
         assert result == mock_results
 
     def test_hybrid_strategy(self):
-        """hybrid 戦略が multi_query を使用することを確認"""
+        """hybrid 戦略が hybrid_retrieve を使用することを確認"""
         from app.rag import retriever
 
         mock_results = [{"id": "doc1", "content": "内容", "metadata": {}, "relevance_score": 0.9}]
 
-        with patch("app.rag.retriever.retrieve_with_multi_query", return_value=mock_results) as mock_multi, \
+        with patch("app.rag.retriever.hybrid_retrieve", return_value=mock_results) as mock_hybrid, \
              patch("app.rag.retriever.get_settings") as mock_settings:
             mock_settings.return_value = Settings(retrieval_strategy="hybrid")
 
             result = retriever.retrieve_with_strategy("質問", n_results=5)
 
-        mock_multi.assert_called_once()
+        mock_hybrid.assert_called_once_with(query="質問", n_results=5, category=None)
         assert result == mock_results
 
     def test_explicit_strategy_overrides_settings(self):

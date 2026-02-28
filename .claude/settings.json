@@ -3,6 +3,8 @@
     "context7@claude-plugins-official": true,
     "serena@claude-plugins-official": true,
     "example-skills@anthropic-agent-skills": true,
-    "ralph-loop@claude-plugins-official": true
+    "ralph-loop@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true
   }
 }

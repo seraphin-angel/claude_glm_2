@@ -8,6 +8,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 直近の会話からキーワードを抽出する件数
+RECENT_CONVERSATION_COUNT = 10
+
 
 class FAQService:
     """FAQ データの管理と推薦を行うサービス"""
@@ -292,7 +295,7 @@ class FAQService:
 
         # 過去の質問から頻出キーワードを抽出
         question_keywords = set()
-        for conv in conversations[-10:]:  # 直近10件
+        for conv in conversations[-RECENT_CONVERSATION_COUNT:]:
             question = getattr(conv, "question", "")
             # 簡易的なキーワード抽出（スペース区切り）
             words = question.split()

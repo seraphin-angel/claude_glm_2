@@ -1,12 +1,32 @@
 import { useState } from 'react'
 import { Check, Copy, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { logger } from '@/lib/logger'
 
 interface CopyButtonProps {
   readonly text: string
 }
 
 type CopyState = 'idle' | 'copied' | 'error'
+
+// 各状態に対応するラベル定義（aria-label と title を統合）
+const STATE_LABELS: Record<CopyState, { aria: string; title: string }> = {
+  copied: { aria: 'コピー完了', title: 'コピー完了' },
+  error: { aria: 'コピー失敗', title: 'コピーに失敗しました' },
+  idle: { aria: 'コピー', title: 'コピー' },
+}
+
+// 状態に応じたアイコンを返す
+function getStateIcon(state: CopyState) {
+  switch (state) {
+    case 'copied':
+      return <Check className="w-4 h-4" />
+    case 'error':
+      return <AlertCircle className="w-4 h-4" />
+    default:
+      return <Copy className="w-4 h-4" />
+  }
+}
 
 export function CopyButton({ text }: CopyButtonProps) {
   const [copyState, setCopyState] = useState<CopyState>('idle')
@@ -17,7 +37,10 @@ export function CopyButton({ text }: CopyButtonProps) {
       setCopyState('copied')
       setTimeout(() => setCopyState('idle'), 2000)
     } catch (error) {
-      console.error('Failed to copy text:', error)
+      logger.error('CopyButton', {
+        message: 'Clipboard API failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       // Fallback: traditional selection + copy
       try {
@@ -38,32 +61,13 @@ export function CopyButton({ text }: CopyButtonProps) {
           setTimeout(() => setCopyState('idle'), 3000)
         }
       } catch (fallbackError) {
-        console.error('Fallback copy also failed:', fallbackError)
+        logger.error('CopyButton', {
+          message: 'Fallback copy failed',
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        })
         setCopyState('error')
         setTimeout(() => setCopyState('idle'), 3000)
       }
-    }
-  }
-
-  const getAriaLabel = () => {
-    switch (copyState) {
-      case 'copied':
-        return 'コピー完了'
-      case 'error':
-        return 'コピー失敗'
-      default:
-        return 'コピー'
-    }
-  }
-
-  const getTitle = () => {
-    switch (copyState) {
-      case 'copied':
-        return 'コピー完了'
-      case 'error':
-        return 'コピーに失敗しました'
-      default:
-        return 'コピー'
     }
   }
 
@@ -78,16 +82,10 @@ export function CopyButton({ text }: CopyButtonProps) {
         copyState === 'error' && 'text-red-500',
         copyState === 'idle' && 'text-muted-foreground',
       )}
-      aria-label={getAriaLabel()}
-      title={getTitle()}
+      aria-label={STATE_LABELS[copyState].aria}
+      title={STATE_LABELS[copyState].title}
     >
-      {copyState === 'copied' ? (
-        <Check className="w-4 h-4" />
-      ) : copyState === 'error' ? (
-        <AlertCircle className="w-4 h-4" />
-      ) : (
-        <Copy className="w-4 h-4" />
-      )}
+      {getStateIcon(copyState)}
     </button>
   )
 }

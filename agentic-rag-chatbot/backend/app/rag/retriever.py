@@ -1,4 +1,5 @@
 import logging
+from threading import Lock
 from typing import Any
 
 from app.config.settings import get_settings
@@ -48,10 +49,12 @@ class CrossEncoderReranker:
     """Cross-Encoder モデルを使用したリランキングクラス。
 
     シングルトンパターンでモデルを管理し、メモリ使用量を最適化する。
+    スレッドセーフなダブルチェックロッキングを使用。
     """
 
     _instance: "CrossEncoderReranker | None" = None
     _model: Any = None  # CrossEncoder 型（遅延インポート）
+    _lock: Lock = Lock()  # スレッドセーフティ用ロック
 
     def __init__(self) -> None:
         """初期化は get_instance() 経由でのみ行う。"""
@@ -60,16 +63,19 @@ class CrossEncoderReranker:
 
     @classmethod
     def get_instance(cls) -> "CrossEncoderReranker":
-        """シングルトンインスタンスを取得する。"""
+        """シングルトンインスタンスを取得する（スレッドセーフ）。"""
         if cls._instance is None:
-            cls._instance = cls.__new__(cls)
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls.__new__(cls)
         return cls._instance
 
     @classmethod
     def reset_instance(cls) -> None:
         """シングルトンインスタンスをリセットする（テスト用）。"""
-        cls._instance = None
-        cls._model = None
+        with cls._lock:
+            cls._instance = None
+            cls._model = None
 
     def _load_model(self) -> Any:
         """Cross-Encoder モデルを遅延ロードする。"""
@@ -308,14 +314,12 @@ def retrieve_with_strategy(
         settings = get_settings()
         strategy = settings.retrieval_strategy
 
-    # 戦略に基づいて検索を実行
-    if strategy == "multi_query":
-        return retrieve_with_multi_query(query=query, n_results=n_results, category=category)
-    elif strategy == "hyde":
-        return retrieve_with_hyde(query=query, n_results=n_results, category=category)
-    elif strategy == "hybrid":
-        # hybrid: BM25 + Vector + RRF 統合検索（hybrid_retrieve を使用）
-        return hybrid_retrieve(query=query, n_results=n_results, category=category)
-    else:
-        # standard または無効な値はフォールバック
-        return retrieve_documents(query=query, n_results=n_results, category=category)
+    # ディスパッチテーブルで戦略を選択
+    strategy_dispatch = {
+        "multi_query": retrieve_with_multi_query,
+        "hyde": retrieve_with_hyde,
+        "hybrid": hybrid_retrieve,
+    }
+
+    retrieval_func = strategy_dispatch.get(strategy, retrieve_documents)
+    return retrieval_func(query=query, n_results=n_results, category=category)
