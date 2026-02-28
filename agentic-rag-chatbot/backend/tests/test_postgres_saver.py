@@ -155,6 +155,106 @@ class TestPostgresSaverConfiguration:
         assert "langgraph-checkpoint-postgres" in dependency_names
 
 
+class TestPersistenceHealthCheck:
+    """is_persistence_healthy() 機能のテスト（TDD: Issue #1）"""
+
+    def test_is_persistence_healthy_function_exists(self):
+        """is_persistence_healthy 関数が存在することをテスト"""
+        from app.agents.agent import is_persistence_healthy
+
+        assert callable(is_persistence_healthy)
+
+    def test_is_persistence_healthy_returns_bool(self):
+        """is_persistence_healthy が bool を返すことをテスト"""
+        from app.agents.agent import reset_agent, is_persistence_healthy
+
+        reset_agent()
+        result = is_persistence_healthy()
+        assert isinstance(result, bool)
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_true_with_memory_saver(self):
+        """MemorySaver モードでは persistence_healthy が True を返すことをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_memory_saver,
+            get_agent,
+            is_persistence_healthy,
+        )
+
+        reset_agent()
+        use_memory_saver()
+
+        agent = await get_agent()
+        assert agent is not None
+
+        # MemorySaver モードでは明示的に設定された場合は True
+        result = is_persistence_healthy()
+        assert result is True
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_true_on_postgres_success(self):
+        """PostgresSaver 成功時に persistence_healthy が True を返すことをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_postgres_saver,
+            get_agent,
+            is_persistence_healthy,
+        )
+
+        reset_agent()
+        use_postgres_saver()
+
+        # MemorySaver を使用するようにモック（PostgresSaver 成功をシミュレート）
+        with patch("app.agents.agent._use_postgres", False):
+            agent = await get_agent()
+            assert agent is not None
+
+            # PostgresSaver 成功時は True を期待
+            result = is_persistence_healthy()
+            assert result is True
+
+        reset_agent()
+
+    @pytest.mark.asyncio
+    async def test_is_persistence_healthy_false_on_fallback(self):
+        """PostgresSaver フォールバック時に persistence_healthy が False を返すことをテスト"""
+        from app.agents.agent import (
+            reset_agent,
+            use_postgres_saver,
+            get_agent,
+            is_persistence_healthy,
+        )
+
+        reset_agent()
+        use_postgres_saver()
+
+        # PostgresSaver でエラーが発生するようにモック
+        with patch(
+            "app.config.settings.get_settings"
+        ) as mock_settings:
+            mock_settings.return_value.database_url = (
+                "postgresql://invalid:invalid@invalid:5432/invalid"
+            )
+
+            # PostgresSaver のインポートでエラーを発生させる
+            with patch.dict(
+                "sys.modules",
+                {"langgraph.checkpoint.postgres.aio": MagicMock(side_effect=ImportError)},
+            ):
+                agent = await get_agent()
+                assert agent is not None
+
+                # フォールバック時は False を期待
+                result = is_persistence_healthy()
+                assert result is False
+
+        reset_agent()
+
+
 @pytest.mark.integration
 class TestPostgresSaverLive:
     """PostgresSaver ライブテスト（PostgreSQL コンテナが必要）"""

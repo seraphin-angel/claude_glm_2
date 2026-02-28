@@ -257,3 +257,57 @@ class TestEscalationServicePersistence:
         # 破損ファイルの場合は空リストで開始
         tickets = service.get_tickets()
         assert tickets == []
+
+
+class TestEscalationServiceSaveError:
+    """_save メソッドのエラーハンドリングテスト（TDD: Issue #2）"""
+
+    def test_save_raises_ioerror_on_write_failure(self, temp_persist_path: Path):
+        """_save失敗時にIOErrorが発生することをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        # write_textを失敗させる
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+            with pytest.raises(IOError) as exc_info:
+                service._save()
+
+            assert "Failed to save escalation data" in str(exc_info.value)
+
+        EscalationService.reset_instance()
+
+    def test_create_ticket_propagates_save_error(self, temp_persist_path: Path):
+        """create_ticketで_saveが失敗した場合、エラーが伝播することをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        # _saveを失敗させる
+        with patch.object(service, "_save", side_effect=IOError("disk full")):
+            with pytest.raises(IOError) as exc_info:
+                service.create_ticket(
+                    reason="test reason",
+                    urgency="high",
+                    summary="test summary",
+                )
+
+            assert "disk full" in str(exc_info.value)
+
+        EscalationService.reset_instance()
+
+    def test_save_logs_error_with_details_on_failure(self, temp_persist_path: Path):
+        """_save失敗時にエラー詳細を含むログが出力されることをテスト"""
+        EscalationService.reset_instance()
+        service = EscalationService(persist_path=str(temp_persist_path))
+
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")):
+            with patch("app.services.escalation_service.logger") as mock_logger:
+                with pytest.raises(IOError):
+                    service._save()
+
+                # errorレベルでログが出力されることを確認
+                mock_logger.error.assert_called_once()
+                call_args = mock_logger.error.call_args
+                # DATA LOSS RISK が含まれることを確認
+                assert "DATA LOSS RISK" in call_args[0][0]
+
+        EscalationService.reset_instance()

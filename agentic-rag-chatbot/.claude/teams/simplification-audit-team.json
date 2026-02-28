@@ -1,0 +1,10 @@
+{
+  "name": "simplification-audit-team",
+  "description": "コードベース全体の簡素化分析チーム",
+  "created_at": "2026-02-28T00:00:00Z",
+  "status": "active",
+  "project": {
+    "frontend": "/workspace/agentic-rag-chatbot/frontend/src",
+    "backend": "/workspace/agentic-rag-chatbot/backend/app"
+  }
+}

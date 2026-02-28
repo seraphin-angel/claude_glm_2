@@ -163,7 +163,11 @@ class EscalationService:
             self._tickets = []
 
     def _save(self):
-        """チケットをファイルに保存する"""
+        """チケットをファイルに保存する
+
+        Raises:
+            IOError: 保存に失敗した場合。呼び出し元で適切にハンドリングすること。
+        """
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             self._persist_path.write_text(
@@ -172,6 +176,8 @@ class EscalationService:
             )
         except Exception as e:
             logger.error(
-                "Failed to save escalations file",
+                f"Failed to save escalations file - DATA LOSS RISK: "
+                f"path={self._persist_path}, error={e}",
                 exc_info=True,
             )
+            raise IOError(f"Failed to save escalation data: {e}") from e

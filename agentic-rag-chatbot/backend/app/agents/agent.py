@@ -62,11 +62,13 @@ def build_agent(checkpointer=None):
 _agent = None
 _checkpointer = None
 _checkpointer_context = None
+# Persistence health status
+_persistence_healthy = True
 
 
 async def get_agent():
     """エージェントのシングルトンインスタンスを取得（非同期）"""
-    global _agent, _checkpointer, _checkpointer_context, _use_postgres
+    global _agent, _checkpointer, _checkpointer_context, _use_postgres, _persistence_healthy
     if _agent is None:
         if _use_postgres:
             try:
@@ -81,19 +83,23 @@ async def get_agent():
                 # テーブルを作成（初回のみ必要）
                 await _checkpointer_context.setup()
                 _agent = build_agent(checkpointer=_checkpointer_context)
+                _persistence_healthy = True
                 logger.info("PostgresSaver initialized successfully")
             except Exception as e:
                 logger.error(
                     "Failed to initialize PostgresSaver, falling back to MemorySaver. "
-                    "Chat session history will NOT persist across server restarts.",
+                    "Chat session history will NOT persist across server restarts. "
+                    "THIS IS A CRITICAL DEGRADED STATE.",
                     exc_info=True,
                 )
+                _persistence_healthy = False
                 _checkpointer = MemorySaver()
                 _checkpointer_context = None
                 _agent = build_agent(checkpointer=_checkpointer)
         else:
             _checkpointer = MemorySaver()
             _checkpointer_context = None
+            _persistence_healthy = True  # MemorySaver is intentionally used
             _agent = build_agent(checkpointer=_checkpointer)
     return _agent
 
@@ -106,9 +112,19 @@ def get_checkpointer():
     return _checkpointer
 
 
+def is_persistence_healthy() -> bool:
+    """Check if persistence layer is functioning properly.
+
+    Returns:
+        True if PostgresSaver is working or MemorySaver is intentionally used.
+        False if PostgresSaver failed and fell back to MemorySaver.
+    """
+    return _persistence_healthy
+
+
 def reset_agent():
     """エージェントをリセット（テスト用）"""
-    global _agent, _checkpointer, _checkpointer_context
+    global _agent, _checkpointer, _checkpointer_context, _persistence_healthy
     if _checkpointer_context is not None:
         # 非同期コンテキストマネージャのクリーンアップが必要だが、
         # 同期関数なのでここでは参照を解除するだけ
@@ -130,6 +146,7 @@ def reset_agent():
     _agent = None
     _checkpointer = None
     _checkpointer_context = None
+    _persistence_healthy = True  # Reset to default healthy state
 
 
 def use_memory_saver():

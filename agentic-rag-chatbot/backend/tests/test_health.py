@@ -22,6 +22,142 @@ from app.api.health import (
 from app.main import app
 
 
+class TestPersistenceHealthCheck:
+    """persistence ヘルスチェックのテスト（TDD: Issue #1）"""
+
+    @pytest.mark.asyncio
+    async def test_detailed_health_includes_persistence_check(self):
+        """detailed health エンドポイントに persistence チェックが含まれることをテスト"""
+        with (
+            patch("app.api.health.VectorStore") as mock_store,
+            patch("app.api.health.get_llm") as mock_get_llm,
+            patch("app.api.health.psutil") as mock_psutil,
+            patch("app.agents.agent.is_persistence_healthy", return_value=True),
+        ):
+            # Mock ChromaDB
+            mock_instance = MagicMock()
+            mock_instance.count = 150
+            mock_store.get_instance.return_value = mock_instance
+
+            # Mock OpenAI
+            mock_llm = MagicMock()
+            mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="pong"))
+            mock_get_llm.return_value = mock_llm
+
+            # Mock psutil
+            mock_memory = MagicMock()
+            mock_memory.used = 256 * 1024 * 1024
+            mock_memory.available = 1024 * 1024 * 1024
+            mock_memory.percent = 25.0
+            mock_psutil.virtual_memory.return_value = mock_memory
+
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health/detailed")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "persistence" in data["checks"]
+
+    @pytest.mark.asyncio
+    async def test_persistence_check_returns_healthy_when_true(self):
+        """persistence が正常な場合 ok ステータスを返すことをテスト"""
+        with (
+            patch("app.api.health.VectorStore") as mock_store,
+            patch("app.api.health.get_llm") as mock_get_llm,
+            patch("app.api.health.psutil") as mock_psutil,
+            patch("app.agents.agent.is_persistence_healthy", return_value=True),
+        ):
+            mock_instance = MagicMock()
+            mock_instance.count = 150
+            mock_store.get_instance.return_value = mock_instance
+
+            mock_llm = MagicMock()
+            mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="pong"))
+            mock_get_llm.return_value = mock_llm
+
+            mock_memory = MagicMock()
+            mock_memory.used = 256 * 1024 * 1024
+            mock_memory.available = 1024 * 1024 * 1024
+            mock_memory.percent = 25.0
+            mock_psutil.virtual_memory.return_value = mock_memory
+
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health/detailed")
+
+                data = response.json()
+                assert data["checks"]["persistence"]["status"] == "ok"
+                assert data["checks"]["persistence"]["healthy"] is True
+
+    @pytest.mark.asyncio
+    async def test_persistence_check_returns_degraded_when_false(self):
+        """persistence がフォールバック状態の場合 degraded ステータスになることをテスト"""
+        with (
+            patch("app.api.health.VectorStore") as mock_store,
+            patch("app.api.health.get_llm") as mock_get_llm,
+            patch("app.api.health.psutil") as mock_psutil,
+            patch("app.agents.agent.is_persistence_healthy", return_value=False),
+        ):
+            mock_instance = MagicMock()
+            mock_instance.count = 150
+            mock_store.get_instance.return_value = mock_instance
+
+            mock_llm = MagicMock()
+            mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="pong"))
+            mock_get_llm.return_value = mock_llm
+
+            mock_memory = MagicMock()
+            mock_memory.used = 256 * 1024 * 1024
+            mock_memory.available = 1024 * 1024 * 1024
+            mock_memory.percent = 25.0
+            mock_psutil.virtual_memory.return_value = mock_memory
+
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health/detailed")
+
+                data = response.json()
+                assert data["checks"]["persistence"]["status"] == "degraded"
+                assert data["checks"]["persistence"]["healthy"] is False
+                assert "fallback" in data["checks"]["persistence"]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_overall_status_degraded_when_persistence_fails(self):
+        """persistence が失敗している場合全体のステータスが degraded になることをテスト"""
+        with (
+            patch("app.api.health.VectorStore") as mock_store,
+            patch("app.api.health.get_llm") as mock_get_llm,
+            patch("app.api.health.psutil") as mock_psutil,
+            patch("app.agents.agent.is_persistence_healthy", return_value=False),
+        ):
+            mock_instance = MagicMock()
+            mock_instance.count = 150
+            mock_store.get_instance.return_value = mock_instance
+
+            mock_llm = MagicMock()
+            mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="pong"))
+            mock_get_llm.return_value = mock_llm
+
+            mock_memory = MagicMock()
+            mock_memory.used = 256 * 1024 * 1024
+            mock_memory.available = 1024 * 1024 * 1024
+            mock_memory.percent = 25.0
+            mock_psutil.virtual_memory.return_value = mock_memory
+
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health/detailed")
+
+                data = response.json()
+                # persistence が degraded なので全体も degraded
+                assert data["status"] == "degraded"
+
+
 class TestHealthModels:
     """Test Pydantic models for health response."""
 
@@ -63,13 +199,14 @@ class TestHealthModels:
 
     def test_health_response_model(self):
         """Test HealthResponse model creation."""
-        from app.api.health import HealthChecks
+        from app.api.health import HealthChecks, PersistenceCheck
 
         checks = HealthChecks(
             chromadb=ChromaDBCheck(status="ok", document_count=150),
             openai=OpenAICheck(status="ok", latency_ms=120),
             memory=MemoryCheck(used_mb=256, available_mb=1024, percent=25.0),
             sessions=SessionsCheck(active=5),
+            persistence=PersistenceCheck(status="ok", healthy=True, message="PostgreSQL connected"),
         )
         response = HealthResponse(
             status="healthy",
