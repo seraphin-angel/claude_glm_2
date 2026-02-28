@@ -9,7 +9,7 @@ _DEFAULT_DATABASE_URL = "postgresql://chatbot_user:chatbot_password@localhost:54
 
 
 class Settings(BaseSettings):
-    app_version: str = "0.1.0"
+    app_version: str = "0.4.0"
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-4o-mini"
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]

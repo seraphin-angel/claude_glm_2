@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tail:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vitest:*)",
+      "Bash(cd /workspace/agentic-rag-chatbot/backend && python -m pytest tests/ -x --tb=short 2>&1)",
+      "Bash(python:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

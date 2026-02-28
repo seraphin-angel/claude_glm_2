@@ -19,7 +19,7 @@
       "TZ": "Asia/Tokyo"
     }
   },
-  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW", "--shm-size=512m"],
   "customizations": {
     "vscode": {
       "extensions": [
